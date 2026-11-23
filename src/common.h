@@ -34,6 +34,8 @@
 #define HK_SELECT     8   // Ctrl+左键：把光标下的窗口加入/移出批量选择
 #define HK_BATCH_PIN  9   // Ctrl+右键：批量置顶 / 取消置顶
 #define HK_SELECT_ALL 10  // Ctrl+Shift+A：全选未最小化窗口 / 取消全选
+#define HK_ALPHA_UP   11  // Ctrl+↑：当前选中窗口透明度数值 +10（上限 100）
+#define HK_ALPHA_DOWN 12  // Ctrl+↓：当前选中窗口透明度数值 -10（下限 0）
 
 // 鼠标键的伪键值（与键盘 VK 共用同一字段，靠 device 区分）
 #define TMD_MOUSE_LEFT       1

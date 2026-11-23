@@ -93,6 +93,8 @@ bool App::Init()
         if (UINT r = hit(m_cfg.bindHide,     HK_HIDE))      return r;
         if (UINT r = hit(m_cfg.bindShowAll,  HK_SHOW_ALL))  return r;
         if (UINT r = hit(m_cfg.bindSelectAll, HK_SELECT_ALL)) return r;
+        if (UINT r = hit(m_cfg.bindAlphaUp,   HK_ALPHA_UP))   return r;
+        if (UINT r = hit(m_cfg.bindAlphaDown, HK_ALPHA_DOWN)) return r;
         return 0;
     });
     m_input.SetListener([this](UINT msg, POINT pt) { OnHookMouse(msg, pt); });
@@ -282,12 +284,36 @@ void App::OnAction(UINT id)
     case HK_SELECT:   SelectUnderCursor(m_lastMouse); break;
     case HK_SELECT_ALL: SelectAllWindows(); break;
     case HK_BATCH_PIN: BatchPinSelected(); break;
+    case HK_ALPHA_UP:   AdjustTargetAlpha(+1); break;
+    case HK_ALPHA_DOWN: AdjustTargetAlpha(-1); break;
     case HK_MENU:
         m_target = GetForegroundWindow();
         ShowContextMenu();
         break;
     default: break;
     }
+}
+
+void App::AdjustTargetAlpha(int dir)
+{
+    // 只对当前选中的窗口生效；没有目标 / 目标是本程序窗口时安全忽略
+    HWND h = m_target;
+    if (!h || !IsWindow(h) || WindowManager::OwnWindow(h)) return;
+
+    // 与托盘菜单「窗口透明度」同一量纲：100 = 不透明(alpha 255)，0 = 全透明(alpha 0)
+    const BYTE cur = m_wm.GetAlpha(h);
+    int pct = (cur * 100 + 127) / 255;   // 四舍五入回百分比
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+
+    int next = pct + dir * 10;
+    if (next < 0)   next = 0;
+    if (next > 100) next = 100;
+    if (next == pct) return;             // 已到边界：安全忽略，不打扰用户
+
+    m_wm.SetAlpha(h, (BYTE)(next * 255 / 100));
+    Notify(NCT_ALPHA, L"透明度已调整",
+           tmd::Format(L"%s → %d%%", WindowManager::Title(h).c_str(), next));
 }
 
 // ---------------- 批量选择 ----------------
@@ -549,7 +575,8 @@ void App::OpenSettings()
 {
     // 先释放自己占用的热键，否则"改回原组合"会被自己挡住，占用校验也不准
     const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
-                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL };
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL,
+                         HK_ALPHA_UP, HK_ALPHA_DOWN };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
     m_toggleHotkeyOk = false;
 
@@ -791,7 +818,8 @@ void App::RefreshTrayTip()
 void App::ReRegisterHotkeys()
 {
     const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
-                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL };
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL,
+                         HK_ALPHA_UP, HK_ALPHA_DOWN };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
 
     auto reg = [&](UINT id, const Binding& b) -> BOOL {
@@ -838,6 +866,8 @@ void App::ReRegisterHotkeys()
     reg(HK_HIDE,     m_cfg.bindHide);
     reg(HK_SHOW_ALL, m_cfg.bindShowAll);
     reg(HK_SELECT_ALL, m_cfg.bindSelectAll);
+    reg(HK_ALPHA_UP,   m_cfg.bindAlphaUp);
+    reg(HK_ALPHA_DOWN, m_cfg.bindAlphaDown);
 }
 
 void App::ReRegisterToggleForCapture()

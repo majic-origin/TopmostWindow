@@ -15,7 +15,7 @@ const int kTitleH = 56;
 const int kSideW  = 228;
 const int kCX0    = 252;    // 右侧内容左边界
 const int kCX1    = 866;    // 右侧内容右边界
-const int kRowH   = 42;
+const int kRowH   = 36;   // 12 行（含透明度 ±）压到 36，避免撞到底部按钮
 const int kRowTop = 130;
 const int kFootTop = kWinH - 68;
 
@@ -38,6 +38,8 @@ const RowDef kRows[] = {
     { &AppConfig::bindBatchPin, L"批量置顶 / 取消置顶", L"有选中窗口时作用于全部选中；没有选中时作用于当前窗口" },
     { &AppConfig::bindSelectAll, L"全选 / 取消全选窗口", L"一次选中桌面上所有未最小化窗口；已全选时再按一次则清空" },
     { &AppConfig::bindMenu,     L"打开管理菜单",        L"在鼠标位置弹出完整的管理菜单" },
+    { &AppConfig::bindAlphaUp,   L"提高选中窗口透明度",  L"当前选中窗口 +10%（最高 100%）；默认 Ctrl+↑" },
+    { &AppConfig::bindAlphaDown, L"降低选中窗口透明度",  L"当前选中窗口 -10%（最低 0%）；默认 Ctrl+↓" },
 };
 const int kRowCount = (int)(sizeof(kRows) / sizeof(kRows[0]));
 
@@ -439,9 +441,10 @@ void PaintPageAbout(Gdiplus::Graphics& gfx)
     ui::Text(gfx, L"关于", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
 
     const wchar_t* lines[] = {
-        L"TopMostDesk 1.5 — Windows 窗口置顶助手",
+        L"TopMostDesk 1.6.2 — Windows 窗口置顶助手",
         L"",
         L"· 置顶 / 取消置顶：焦点放到目标窗口后按快捷键",
+        L"· 选中窗口透明度：Ctrl+↑ / Ctrl+↓ 每次 ±10%（0~100%），只对当前选中窗口生效",
         L"· 批量选择：按住设定键点窗口，可连续选多个；再按隐藏 / 批量置顶一次性处理",
         L"· 交换切换：快捷键在置顶窗口之间循环",
         L"· 边框标记：普通置顶 / 当前目标 / 批量选中三套配色与粗细",

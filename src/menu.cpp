@@ -54,6 +54,13 @@ HMENU App::BuildMenu()
     // ---- 透明度 ----
     HMENU alphaMenu = CreatePopupMenu();
     const BYTE curA = hasTarget ? m_wm.GetAlpha(m_target) : 255;
+    const int curPct = (curA * 100 + 127) / 255;
+    // 顶部灰字：显示当前值（快捷键可能调出非九档值）+ 默认快捷键，方便发现
+    AppendMenuW(alphaMenu, MF_STRING | MF_GRAYED, IDM_NONE,
+                tmd::Format(L"当前 %d%%  ·  %s / %s 每次 ±10%%", curPct,
+                            tmd::DescribeBinding(m_cfg.bindAlphaUp).c_str(),
+                            tmd::DescribeBinding(m_cfg.bindAlphaDown).c_str()).c_str());
+    AppendMenuW(alphaMenu, MF_SEPARATOR, 0, nullptr);
     for (int i = 0; i < kAlphaCount; ++i) {
         BYTE v = (BYTE)(kAlphaSteps[i] * 255 / 100);
         UINT flags = MF_STRING | ((curA == v) ? MF_CHECKED : 0);

@@ -35,6 +35,9 @@ struct AppConfig
     Binding bindBatchPin{ TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_RIGHT };
     // 全选 / 取消全选未最小化窗口
     Binding bindSelectAll { TMD_DEV_KEYBOARD, MOD_CONTROL | MOD_SHIFT, 'A' };
+    // 当前选中窗口透明度 +10 / -10：默认 Ctrl+↑ / Ctrl+↓
+    Binding bindAlphaUp   { TMD_DEV_KEYBOARD, MOD_CONTROL, VK_UP };
+    Binding bindAlphaDown { TMD_DEV_KEYBOARD, MOD_CONTROL, VK_DOWN };
 
     bool     autoStart       = false;                 // 开机自启
     bool     showMarker      = true;                  // 置顶窗口视觉标记

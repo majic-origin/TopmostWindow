@@ -97,6 +97,8 @@ bool LoadConfig(AppConfig& cfg)
     LoadBinding(f, L"select",   cfg.bindSelect);
     LoadBinding(f, L"batchpin", cfg.bindBatchPin);
     LoadBinding(f, L"selectall", cfg.bindSelectAll);
+    LoadBinding(f, L"alphaup",   cfg.bindAlphaUp);
+    LoadBinding(f, L"alphadown", cfg.bindAlphaDown);
 
     const std::wstring G = L"general";
     cfg.autoStart       = ReadUInt(G, L"autoStart",       cfg.autoStart ? 1 : 0, f) != 0;
@@ -135,6 +137,8 @@ bool SaveConfig(const AppConfig& cfg)
     SaveBinding(f, L"select",   cfg.bindSelect);
     SaveBinding(f, L"batchpin", cfg.bindBatchPin);
     SaveBinding(f, L"selectall", cfg.bindSelectAll);
+    SaveBinding(f, L"alphaup",   cfg.bindAlphaUp);
+    SaveBinding(f, L"alphadown", cfg.bindAlphaDown);
 
     WriteUInt(L"general", L"autoStart",       cfg.autoStart ? 1 : 0, f);
     WriteUInt(L"general", L"showMarker",      cfg.showMarker ? 1 : 0, f);

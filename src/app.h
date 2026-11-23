@@ -96,6 +96,7 @@ private:
     void  ClearSelection();
     void  HideCurrentOrSelected();       // Ctrl+H
     void  BatchPinSelected();            // Ctrl+右键
+    void  AdjustTargetAlpha(int dir);    // 当前选中窗口透明度 ±10%（0~100）
     void  PruneSelection();
 
     // ---- 同步拖动 ----
