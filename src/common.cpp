@@ -1,4 +1,5 @@
 #include "common.h"
+#include <commdlg.h>
 
 namespace tmd {
 
@@ -78,6 +79,79 @@ std::wstring DescribeBinding(const Binding& b)
 
     add(b.device == TMD_DEV_MOUSE ? MouseButtonName(b.key) : KeyDisplayName(b.key));
     return s;
+}
+
+// ---------------- 系统取色器（带"顶到最前"看门线程） ----------------
+
+namespace {
+
+struct PromoteCtx
+{
+    DWORD         tid  = 0;
+    volatile LONG stop = 0;
+    HWND          found = nullptr;
+};
+
+// 只认本线程创建的 #32770（通用对话框类名），别的窗口一概不碰
+BOOL CALLBACK PromoteEnum(HWND h, LPARAM lp)
+{
+    auto* c = reinterpret_cast<PromoteCtx*>(lp);
+    if (!IsWindowVisible(h)) return TRUE;
+    wchar_t cls[64] = {};
+    if (!GetClassNameW(h, cls, 64)) return TRUE;
+    if (wcscmp(cls, L"#32770") != 0) return TRUE;
+    c->found = h;
+    return FALSE;
+}
+
+DWORD WINAPI PromoteProc(LPVOID p)
+{
+    auto* c = reinterpret_cast<PromoteCtx*>(p);
+    for (int i = 0; i < 40 && !c->stop; ++i) {     // 最多盯 4 秒
+        Sleep(100);
+        if (c->stop) break;
+        c->found = nullptr;
+        EnumThreadWindows(c->tid, &PromoteEnum, (LPARAM)c);
+        if (c->found) {
+            // 对话框自己不是 topmost，被置顶的窗口压住时用户会以为"点了没反应"
+            SetWindowPos(c->found, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            SetForegroundWindow(c->found);
+            break;
+        }
+    }
+    return 0;
+}
+
+} // namespace
+
+bool ChooseColorTopmost(HWND owner, COLORREF& inout)
+{
+    static COLORREF customs[16] = {};
+
+    PromoteCtx ctx;
+    ctx.tid = GetCurrentThreadId();
+    HANDLE th = CreateThread(nullptr, 0, &PromoteProc, &ctx, 0, nullptr);
+
+    CHOOSECOLORW cc = {};
+    cc.lStructSize  = sizeof(cc);
+    cc.hwndOwner    = owner;
+    cc.rgbResult    = inout;
+    cc.lpCustColors = customs;
+    cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
+    const BOOL ok = ChooseColorW(&cc);
+
+    InterlockedExchange(&ctx.stop, 1);
+    if (th) {
+        WaitForSingleObject(th, 1500);   // 线程最多再睡 100ms，等它自己退
+        CloseHandle(th);
+    }
+
+    if (ok) {
+        inout = cc.rgbResult;
+        return true;
+    }
+    return false;
 }
 
 } // namespace tmd

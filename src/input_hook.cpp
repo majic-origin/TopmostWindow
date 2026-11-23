@@ -34,9 +34,20 @@ void InputHook::Uninstall()
 
 LRESULT CALLBACK InputHook::Proc(int code, WPARAM w, LPARAM l)
 {
-    if (code == HC_ACTION && g_self && g_self->m_matcher) {
+    if (code == HC_ACTION && g_self) {
         // 注意：WH_MOUSE_LL 的 lParam 是 MSLLHOOKSTRUCT，消息号在 wParam 里
         const MSLLHOOKSTRUCT* ms = (const MSLLHOOKSTRUCT*)l;
+        const POINT pt = { ms->pt.x, ms->pt.y };
+
+        // 旁路监听（同步拖动）：不参与命中判定，也不会吞掉事件
+        if (g_self->m_listener &&
+            (w == WM_MOUSEMOVE || w == WM_LBUTTONDOWN || w == WM_LBUTTONUP)) {
+            g_self->m_listener((UINT)w, pt);
+        }
+
+        if (!g_self->m_matcher)
+            return CallNextHookEx(g_self->m_hook, code, w, l);
+
         UINT mouseKey = 0;
         bool down = false;
 
@@ -59,7 +70,6 @@ LRESULT CALLBACK InputHook::Proc(int code, WPARAM w, LPARAM l)
         }
 
         if (mouseKey && down) {
-            POINT pt = { ms->pt.x, ms->pt.y };
             const UINT act = g_self->m_matcher(LiveMods(), mouseKey, pt);
             if (act) {
                 if (g_self->m_notify)

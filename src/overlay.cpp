@@ -49,9 +49,21 @@ LRESULT CALLBACK Overlay::Proc(HWND h, UINT msg, WPARAM w, LPARAM l)
 
 void Overlay::EnsureBuffer(int w, int h)
 {
+    if (w <= 0 || h <= 0) return;
     if (w == m_w && h == m_h && m_bits) return;
 
-    if (m_bmp) { DeleteObject(m_bmp); m_bmp = nullptr; m_bits = nullptr; }
+    if (m_memDC && m_bmp) {
+        // 旧位图还选在 DC 里，直接 DeleteObject 会失败（GDI 不允许删被选中的对象），
+        // 屏幕分辨率一改就漏一个 DC 位图；先换一块 1×1 占位图把它换出来。
+        HBITMAP tmp = CreateBitmap(1, 1, 1, 1, nullptr);
+        if (tmp) {
+            SelectObject(m_memDC, tmp);
+            DeleteObject(m_bmp);
+            DeleteObject(tmp);
+        }
+        m_bmp  = nullptr;
+        m_bits = nullptr;
+    }
     if (!m_memDC) m_memDC = CreateCompatibleDC(nullptr);
 
     BITMAPINFO bmi = {};
@@ -63,11 +75,12 @@ void Overlay::EnsureBuffer(int w, int h)
     bmi.bmiHeader.biCompression = BI_RGB;
 
     void* bits = nullptr;
-    m_bmp = CreateDIBSection(m_memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (m_bmp) {
-        SelectObject(m_memDC, m_bmp);
-        m_bits = (DWORD*)bits;
-    }
+    HBITMAP bmp = CreateDIBSection(m_memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp) { m_w = 0; m_h = 0; return; }   // 建失败就把尺寸清 0，下一帧重试
+
+    m_bmp  = bmp;
+    m_bits = (DWORD*)bits;
+    SelectObject(m_memDC, m_bmp);
     m_w = w;
     m_h = h;
 }

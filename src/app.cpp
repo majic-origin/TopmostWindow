@@ -3,9 +3,15 @@
 #include "settings.h"
 #include "ui_theme.h"
 #include "resource.h"
+#include <dwmapi.h>
 #include <vector>
 
 static const wchar_t* kAppClass = L"TopMostDeskMainWnd";
+
+App* App::s_self = nullptr;
+
+// 前台窗口切换消息（由 WinEventProc 投递到消息循环，避免在系统回调里直接重绘）
+static const UINT WM_TMD_FOREGROUND = WM_APP + 50;
 
 App::App(HINSTANCE inst, int testMode) : m_inst(inst), m_testMode(testMode)
 {
@@ -15,6 +21,8 @@ App::App(HINSTANCE inst, int testMode) : m_inst(inst), m_testMode(testMode)
 App::~App()
 {
     m_input.Uninstall();
+    if (m_fgHook) { UnhookWinEvent(m_fgHook); m_fgHook = nullptr; }
+    if (s_self == this) s_self = nullptr;
     if (m_hwnd) DestroyWindow(m_hwnd);
     m_overlay.Destroy();
     m_tray.Destroy();
@@ -59,6 +67,13 @@ bool App::Init()
     m_overlay.Create(m_inst);
     ApplyMarkerConfig();
 
+    // 鼠标点一下置顶窗口时，系统只是换了前台窗口——没有任何消息会主动告诉我们。
+    // 不跟着走的话 m_target 永远是上一次用快捷键/菜单操作的那个窗口，
+    // 描边就"选中了也不变色"。这里挂 EVENT_SYSTEM_FOREGROUND 补上这一环。
+    s_self = this;
+    m_fgHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                               nullptr, &App::WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+
     // 鼠标键（右键/侧键/滚轮/批量选择）靠全局低级鼠标钩子；键盘走 RegisterHotKey
     m_input.SetMatcher([this](UINT mods, UINT mouseKey, POINT pt) -> UINT {
         if (m_modal) return 0;      // 设置窗口打开时不要抢鼠标
@@ -77,8 +92,10 @@ bool App::Init()
         if (UINT r = hit(m_cfg.bindUnpinAll, HK_UNPIN_ALL)) return r;
         if (UINT r = hit(m_cfg.bindHide,     HK_HIDE))      return r;
         if (UINT r = hit(m_cfg.bindShowAll,  HK_SHOW_ALL))  return r;
+        if (UINT r = hit(m_cfg.bindSelectAll, HK_SELECT_ALL)) return r;
         return 0;
     });
+    m_input.SetListener([this](UINT msg, POINT pt) { OnHookMouse(msg, pt); });
     m_input.Install(m_hwnd);
 
     m_msgTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
@@ -106,6 +123,18 @@ int App::Run()
     return (int)msg.wParam;
 }
 
+void CALLBACK App::WinEventProc(HWINEVENTHOOK, DWORD evt, HWND hwnd,
+                                LONG idObject, LONG idChild, DWORD, DWORD)
+{
+    if (evt != EVENT_SYSTEM_FOREGROUND) return;
+    if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) return;
+
+    App* self = s_self;
+    if (!self || !self->m_hwnd || !hwnd) return;
+    // 回调里只投递消息：WinEvent 回调期间不能重入 UpdateLayeredWindow / SetWindowPos
+    PostMessageW(self->m_hwnd, WM_TMD_FOREGROUND, (WPARAM)hwnd, 0);
+}
+
 LRESULT CALLBACK App::WndProc(HWND h, UINT msg, WPARAM w, LPARAM l)
 {
     App* self = nullptr;
@@ -128,7 +157,8 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
     if (msg == m_msgTaskbarCreated && m_msgTaskbarCreated != 0) {
         m_tray.Recreate(m_hwnd, m_icon, L"TopMostDesk — 窗口置顶助手");
         m_input.Uninstall();
-        m_input.Install(m_hwnd);
+        m_input.SetListener([this](UINT msg, POINT pt) { OnHookMouse(msg, pt); });
+    m_input.Install(m_hwnd);
         return 0;
     }
 
@@ -143,8 +173,18 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
         return 0;
 
     case WM_TIMER:
-        if (w == IDT_MARKER) RefreshOverlayNow();
+        if (w == IDT_MARKER) {
+            // 兜底：万一 WinEvent 钩子被系统回收（比如 Explorer 重启、钩子安装失败），
+            // 200ms 的节拍里自己对比一次前台窗口，边框颜色最多慢一拍，不会永久卡住
+            SyncForegroundTarget();
+            RefreshOverlayNow();
+        }
         else if (w == IDT_PURGE) m_wm.Purge();
+        return 0;
+
+    case WM_TMD_FOREGROUND:
+        if ((HWND)w == GetForegroundWindow() && SyncForegroundTarget())
+            RefreshOverlayNow();
         return 0;
 
     case WM_DESTROY:
@@ -240,6 +280,7 @@ void App::OnAction(UINT id)
         break;
     }
     case HK_SELECT:   SelectUnderCursor(m_lastMouse); break;
+    case HK_SELECT_ALL: SelectAllWindows(); break;
     case HK_BATCH_PIN: BatchPinSelected(); break;
     case HK_MENU:
         m_target = GetForegroundWindow();
@@ -340,11 +381,175 @@ void App::BatchPinSelected()
     RefreshOverlayNow();
 }
 
+// 选择集相关的小工具
+static bool ContainsHwnd(const std::vector<HWND>& v, HWND h)
+{
+    return std::find(v.begin(), v.end(), h) != v.end();
+}
+
+// 可被「全选」的窗口：可见、未最小化、有标题、非工具窗、非本进程
+static BOOL CALLBACK EnumSelectable(HWND h, LPARAM lp)
+{
+    auto* out = reinterpret_cast<std::vector<HWND>*>(lp);
+    if (!IsWindowVisible(h) || IsIconic(h)) return TRUE;
+    if (GetWindow(h, GW_OWNER) != nullptr) return TRUE;
+    if (GetWindowLongPtrW(h, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return TRUE;
+    if (WindowManager::OwnWindow(h)) return TRUE;
+
+    RECT rc = {};
+    if (!GetWindowRect(h, &rc)) return TRUE;
+    if (rc.right - rc.left < 40 || rc.bottom - rc.top < 40) return TRUE;
+
+    wchar_t title[256] = {};
+    if (GetWindowTextW(h, title, 256) <= 0) return TRUE;
+
+    // UWP 关掉后仍挂着但被 DWM 隐藏的"幽灵窗口"
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked)
+        return TRUE;
+
+    out->push_back(h);
+    return TRUE;
+}
+
+void App::SelectAllWindows()
+{
+    std::vector<HWND> all;
+    EnumWindows(&EnumSelectable, (LPARAM)&all);
+    if (all.empty()) {
+        Notify(NCT_PIN, L"没有可选窗口", L"当前桌面没有可选择的普通窗口");
+        return;
+    }
+
+    // 已经全部选中 → 这次按下就是取消全选
+    bool allSelected = true;
+    for (HWND h : all)
+        if (!ContainsHwnd(m_selected, h)) { allSelected = false; break; }
+
+    if (allSelected && !m_selected.empty()) {
+        m_selected.clear();
+        Notify(NCT_PIN, L"已取消全选", tmd::Format(L"共 %u 个窗口", (unsigned)all.size()));
+    } else {
+        m_selected = all;
+        Notify(NCT_PIN, tmd::Format(L"已全选 %u 个窗口", (unsigned)all.size()),
+               L"按 Ctrl+H 批量隐藏，或 Ctrl+右键 批量置顶");
+    }
+    m_target = m_selected.empty() ? m_target : m_selected.front();
+    RefreshTrayTip();
+    RefreshOverlayNow();
+}
+
+// ---------------- 同步拖动 ----------------
+
+
+void App::OnHookMouse(UINT msg, POINT pt)
+{
+    if (!m_cfg.syncDrag) {
+        if (m_dragActive) SyncDragEnd();
+        return;
+    }
+    switch (msg) {
+    case WM_LBUTTONDOWN: SyncDragBegin(pt); break;
+    case WM_MOUSEMOVE:   SyncDragUpdate();  break;
+    case WM_LBUTTONUP:   SyncDragEnd();     break;
+    default: break;
+    }
+}
+
+void App::SyncDragBegin(POINT pt)
+{
+    if (m_dragActive) SyncDragEnd();
+    if (m_cfg.syncDrag == false) return;
+    // Ctrl+左键是「批量选择」手势，不当作拖动起点
+    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) return;
+
+    PruneSelection();
+    if (m_selected.size() < 2) return;
+
+    HWND h = WindowFromPoint(pt);
+    if (!h) return;
+    HWND root = GetAncestor(h, GA_ROOT);
+    if (root) h = root;
+    if (WindowManager::OwnWindow(h)) return;
+    if (IsIconic(h) || !ContainsHwnd(m_selected, h)) return;
+
+    m_dragOrig.clear();
+    for (HWND w : m_selected) {
+        if (!IsWindow(w) || IsIconic(w) || !IsWindowVisible(w)) continue;  // 最小化/隐藏的不参与，但留在选择集里
+        RECT rc = {};
+        if (!GetWindowRect(w, &rc)) continue;   // 必须是窗口矩形，SetWindowPos 也按这个摆
+        m_dragOrig.push_back(DragOrig{ w, rc });
+    }
+    if (m_dragOrig.size() < 2) return;
+
+    m_dragAnchor = h;
+    m_dragDelta  = POINT{ 0, 0 };
+    m_dragActive = true;
+}
+
+void App::AlignDraggedWindows()
+{
+    const DragOrig* base = nullptr;
+    for (const auto& o : m_dragOrig)
+        if (o.hwnd == m_dragAnchor) { base = &o; break; }
+    if (!base) return;
+
+    RECT cur = {};
+    if (!GetWindowRect(m_dragAnchor, &cur)) return;
+
+    // 用"相对起始位置的绝对位移"，而不是增量累加：
+    // 别的窗口的 SetWindowPos 是跨进程调用，读完矩形再算增量会被 DWM 的延迟带偏
+    const int dx = cur.left - base->rc.left;
+    const int dy = cur.top  - base->rc.top;
+    if (dx == m_dragDelta.x && dy == m_dragDelta.y) return;
+    m_dragDelta.x = dx;
+    m_dragDelta.y = dy;
+
+    for (const auto& o : m_dragOrig) {
+        if (o.hwnd == m_dragAnchor) continue;
+        if (!IsWindow(o.hwnd)) continue;                       // 被关闭：跳过
+        if (!ContainsHwnd(m_selected, o.hwnd)) continue;       // 拖动途中被取消选中
+        if (IsIconic(o.hwnd) || !IsWindowVisible(o.hwnd)) continue;  // 被最小化 / 隐藏
+        SetWindowPos(o.hwnd, nullptr, o.rc.left + dx, o.rc.top + dy, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+    RefreshOverlayNow();
+}
+
+void App::SyncDragUpdate()
+{
+    if (!m_dragActive) return;
+    if (!IsWindow(m_dragAnchor) || IsIconic(m_dragAnchor) ||
+        !IsWindowVisible(m_dragAnchor) || !ContainsHwnd(m_selected, m_dragAnchor)) {
+        SyncDragEnd();
+        return;
+    }
+    AlignDraggedWindows();
+}
+
+void App::SyncDragEnd()
+{
+    if (!m_dragActive) return;
+
+    // 收尾对齐：抬起鼠标时锚点窗口的 DWM 边界可能还差最后一帧，按最终位置再摆一次
+    if (m_dragAnchor && IsWindow(m_dragAnchor) && IsWindowVisible(m_dragAnchor) &&
+        !IsIconic(m_dragAnchor)) {
+        AlignDraggedWindows();
+    }
+
+    m_dragActive = false;
+    m_dragAnchor = nullptr;
+    m_dragDelta  = POINT{ 0, 0 };
+    m_dragOrig.clear();
+    PruneSelection();
+    RefreshOverlayNow();
+}
+
 void App::OpenSettings()
 {
     // 先释放自己占用的热键，否则"改回原组合"会被自己挡住，占用校验也不准
     const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
-                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL };
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
     m_toggleHotkeyOk = false;
 
@@ -427,6 +632,31 @@ void App::SetTarget(HWND h)
     m_target = h;
 }
 
+// 前台窗口落到某个「已置顶」窗口上时，把它认成当前目标。
+// 判定条件刻意收紧：
+//   · 本进程自己的窗口（主窗口 / 覆盖层 / 托盘气泡 / 设置窗口）不算
+//   · 已经在批量选择集里的不算——那是绿框，不该被蓝框顶掉
+//   · 没置顶的普通窗口不算——点一下别人的窗口不该让描边跟过去
+bool App::SyncForegroundTarget()
+{
+    HWND fg = GetForegroundWindow();
+    if (!fg || !IsWindow(fg)) return false;
+    if (WindowManager::OwnWindow(fg)) return false;
+    if (fg == m_target) return false;
+
+    for (size_t i = 0; i < m_selected.size();) {
+        if (!IsWindow(m_selected[i])) m_selected.erase(m_selected.begin() + (long)i);
+        else ++i;
+    }
+    if (std::find(m_selected.begin(), m_selected.end(), fg) != m_selected.end())
+        return false;
+
+    if (!m_wm.IsPinned(fg)) return false;
+
+    m_target = fg;
+    return true;
+}
+
 void App::ActivateWindow(HWND h)
 {
     if (!IsWindow(h)) return;
@@ -470,12 +700,14 @@ static bool IsStickyCommand(UINT id)
 {
     if (id >= IDM_COLOR_BASE  && id < IDM_COLOR_BASE  + 10) return true;   // 预设色
     if (id >= IDM_ACOLOR_BASE && id < IDM_ACOLOR_BASE + 10) return true;
+    if (id >= IDM_SCOLOR_BASE && id < IDM_SCOLOR_BASE + 10) return true;   // 批量选中色
     if (id >= IDM_THICK_BASE  && id < IDM_THICK_BASE  + 10) return true;
     if (id >= IDM_NOTIFY_BASE && id < IDM_NOTIFY_BASE + 5)  return true;
 
     switch (id) {
     case IDM_COLOR_CUSTOM:
     case IDM_ACOLOR_CUSTOM:
+    case IDM_SCOLOR_CUSTOM:
     case IDM_MARKER:
     case IDM_AUTOSTART:
     case IDM_NOTIFY_MUTE:
@@ -488,6 +720,7 @@ static bool IsStickyCommand(UINT id)
     case IDM_SETMENUHOTKEY:
     case IDM_UNPIN_ALL:
     case IDM_SHOW_ALL:
+    case IDM_SYNCDRAG:
     case IDM_REFRESH:
         return true;
     default:
@@ -529,7 +762,14 @@ void App::RefreshOverlayNow()
         m_overlay.Refresh({}, nullptr, {});
         return;
     }
-    m_overlay.Refresh(m_wm.List(), m_target, m_selected);
+
+    // 目标窗口只有还处于置顶状态才配拥有"选中色"描边。
+    // 否则取消置顶之后那条蓝框会一直挂在窗口上，看着像"取消了还在选中"。
+    HWND active = m_target;
+    if (active && !m_wm.IsPinned(active))
+        active = nullptr;
+
+    m_overlay.Refresh(m_wm.List(), active, m_selected);
 }
 
 void App::ApplyMarkerConfig()
@@ -551,7 +791,7 @@ void App::RefreshTrayTip()
 void App::ReRegisterHotkeys()
 {
     const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
-                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL };
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL, HK_SELECT_ALL };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
 
     auto reg = [&](UINT id, const Binding& b) -> BOOL {
@@ -597,6 +837,7 @@ void App::ReRegisterHotkeys()
     reg(HK_UNPIN_ALL, m_cfg.bindUnpinAll);
     reg(HK_HIDE,     m_cfg.bindHide);
     reg(HK_SHOW_ALL, m_cfg.bindShowAll);
+    reg(HK_SELECT_ALL, m_cfg.bindSelectAll);
 }
 
 void App::ReRegisterToggleForCapture()

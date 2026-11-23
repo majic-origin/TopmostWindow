@@ -107,6 +107,10 @@ HMENU App::BuildMenu()
     AppendColorMenu(c2, IDM_ACOLOR_BASE, IDM_ACOLOR_CUSTOM, m_cfg.markerActive);
     AppendMenuW(look, MF_POPUP, (UINT_PTR)c2, L"选中窗口边框颜色");
 
+    HMENU c3 = CreatePopupMenu();
+    AppendColorMenu(c3, IDM_SCOLOR_BASE, IDM_SCOLOR_CUSTOM, m_cfg.markerSelect);
+    AppendMenuW(look, MF_POPUP, (UINT_PTR)c3, L"批量选中边框颜色");
+
     HMENU thick = CreatePopupMenu();
     for (int i = 1; i <= 10; ++i) {
         UINT flags = MF_STRING | ((m_cfg.markerThickness == i) ? MF_CHECKED : 0);
@@ -183,6 +187,11 @@ HMENU App::BuildMenu()
     AppendMenuW(selMenu, MF_STRING | (selN ? 0 : MF_GRAYED), IDM_SEL_PIN,
                 (L"置顶 / 取消置顶选中窗口\t" + tmd::DescribeBinding(m_cfg.bindBatchPin)).c_str());
     AppendMenuW(selMenu, MF_STRING | (selN ? 0 : MF_GRAYED), IDM_SEL_CLEAR, L"清空选择");
+    AppendMenuW(selMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(selMenu, MF_STRING, IDM_SELECT_ALL,
+                (L"全选 / 取消全选未最小化窗口\t" + tmd::DescribeBinding(m_cfg.bindSelectAll)).c_str());
+    AppendMenuW(selMenu, MF_STRING | (m_cfg.syncDrag ? MF_CHECKED : 0), IDM_SYNCDRAG,
+                L"同步拖动（多选窗口一起移动）");
     AppendMenuW(root, MF_POPUP, (UINT_PTR)selMenu,
                 (L"批量选择" + (selN ? tmd::Format(L" (%u)", selN) : std::wstring())).c_str());
 
@@ -218,16 +227,10 @@ void App::EditBinding(Binding AppConfig::* field, const wchar_t* title, const wc
 
 bool App::PickColor(COLORREF& inout)
 {
-    static COLORREF customs[16] = {};
-    CHOOSECOLORW cc = {};
-    cc.lStructSize  = sizeof(cc);
-    cc.hwndOwner    = m_hwnd;
-    cc.rgbResult    = inout;
-    cc.lpCustColors = customs;
-    cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
-    if (!ChooseColorW(&cc)) return false;
-    inout = cc.rgbResult;
-    return true;
+    // 主窗口是隐藏的，而置顶窗口本身是 topmost——直接 ChooseColorW 弹出来的
+    // 对话框没有 topmost 属性，会被置顶窗口压住，用户看到的就是"点了自定义颜色没反应"。
+    // 走带看门线程的版本：对话框一出现就把它提到最前。
+    return tmd::ChooseColorTopmost(m_hwnd, inout);
 }
 
 void App::HandleCommand(UINT id)
@@ -266,6 +269,13 @@ void App::HandleCommand(UINT id)
     if (id >= IDM_ACOLOR_BASE && id < IDM_ACOLOR_BASE + (UINT)kPresetCount) {
         int i = (int)(id - IDM_ACOLOR_BASE);
         m_cfg.markerActive = kPresets[i].color;
+        SaveCfg(); ApplyMarkerConfig(); RefreshOverlayNow();
+        return;
+    }
+
+    if (id >= IDM_SCOLOR_BASE && id < IDM_SCOLOR_BASE + (UINT)kPresetCount) {
+        int i = (int)(id - IDM_SCOLOR_BASE);
+        m_cfg.markerSelect = kPresets[i].color;
         SaveCfg(); ApplyMarkerConfig(); RefreshOverlayNow();
         return;
     }
@@ -332,6 +342,19 @@ void App::HandleCommand(UINT id)
         BatchPinSelected();
         break;
 
+    case IDM_SELECT_ALL:
+        SelectAllWindows();
+        break;
+
+    case IDM_SYNCDRAG:
+        m_cfg.syncDrag = !m_cfg.syncDrag;
+        SaveCfg();
+        if (!m_cfg.syncDrag) SyncDragEnd();
+        Notify(NCT_SYSTEM, L"同步拖动",
+               m_cfg.syncDrag ? L"已开启：选中多个窗口后拖动其中一个，其余一起移动"
+                              : L"已关闭：拖动只移动当前窗口");
+        break;
+
     case IDM_NEXT: StepPinned(+1); break;
     case IDM_PREV: StepPinned(-1); break;
 
@@ -395,6 +418,10 @@ void App::HandleCommand(UINT id)
 
     case IDM_ACOLOR_CUSTOM:
         if (PickColor(m_cfg.markerActive)) { SaveCfg(); ApplyMarkerConfig(); RefreshOverlayNow(); }
+        break;
+
+    case IDM_SCOLOR_CUSTOM:
+        if (PickColor(m_cfg.markerSelect)) { SaveCfg(); ApplyMarkerConfig(); RefreshOverlayNow(); }
         break;
 
     case IDM_AUTOSTART: {

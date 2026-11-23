@@ -36,6 +36,8 @@ enum : UINT {
     IDM_ACOLOR_BASE      = 640,     // 640..646 预设色（选中边框）
     IDM_ACOLOR_CUSTOM    = 650,
     IDM_THICK_BASE       = 660,     // 660..669 -> 1..10 px
+    IDM_SCOLOR_BASE      = 670,     // 670..676 预设色（批量选中边框）
+    IDM_SCOLOR_CUSTOM    = 680,
     IDM_NOTIFY_MUTE      = 700,
     IDM_NOTIFY_BASE      = 701,     // 701..705 分类开关
     IDM_NOTIFY_ALL_ON    = 710,
@@ -43,7 +45,9 @@ enum : UINT {
     IDM_SETTINGS         = 720,     // 打开大窗口设置面板
     IDM_SEL_CLEAR        = 730,     // 清空批量选择
     IDM_SEL_HIDE         = 731,     // 隐藏全部选中
-    IDM_SEL_PIN          = 732      // 批量置顶 / 取消
+    IDM_SEL_PIN          = 732,     // 批量置顶 / 取消
+    IDM_SELECT_ALL       = 733,     // 全选 / 取消全选未最小化窗口
+    IDM_SYNCDRAG         = 734      // 同步拖动开关
 };
 
 // 通知分类
@@ -66,6 +70,9 @@ public:
 
 private:
     static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+    // 前台窗口变化（EVENT_SYSTEM_FOREGROUND）：鼠标点一下置顶窗口就是"选中"它，
+    // 但这条信息不会自己跑到我们这里来，边框颜色因此停在旧窗口上。
+    static void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD, HWND, LONG, LONG, DWORD, DWORD);
     LRESULT Handle(HWND h, UINT msg, WPARAM w, LPARAM l);
 
     void  OnAction(UINT id);        // 键盘热键与鼠标钩子共用
@@ -81,13 +88,22 @@ private:
     void  UnpinAll();               // 取消全部置顶
     void  SetTarget(HWND h);
     void  ActivateWindow(HWND h);
+    bool  SyncForegroundTarget();   // 前台窗口是已置顶窗口时，把它设为当前目标
 
     // ---- 批量选择 ----
     void  SelectUnderCursor(POINT pt);   // 命中/取消选择光标下的窗口
+    void  SelectAllWindows();            // 全选 / 取消全选未最小化窗口
     void  ClearSelection();
     void  HideCurrentOrSelected();       // Ctrl+H
     void  BatchPinSelected();            // Ctrl+右键
     void  PruneSelection();
+
+    // ---- 同步拖动 ----
+    void  OnHookMouse(UINT msg, POINT pt);
+    void  SyncDragBegin(POINT pt);
+    void  SyncDragUpdate();
+    void  SyncDragEnd();
+    void  AlignDraggedWindows();     // 按锚点当前矩形摆放其余选中窗口
 
     void  OpenSettings();                // 大窗口设置面板
     void  ReRegisterHotkeys();
@@ -104,6 +120,8 @@ private:
     HINSTANCE     m_inst = nullptr;
     HWND          m_hwnd = nullptr;
     HICON         m_icon = nullptr;
+    HWINEVENTHOOK m_fgHook = nullptr;   // EVENT_SYSTEM_FOREGROUND 监听
+    static App*   s_self;               // 静态回调回到实例的入口
     AppConfig     m_cfg;
     WindowManager m_wm;
     Overlay       m_overlay;
@@ -113,6 +131,13 @@ private:
 
     HWND  m_target = nullptr;    // 当前操作目标（也是"选中"的置顶窗口）
     std::vector<HWND> m_selected;   // 批量选择集（Ctrl+左键点窗口加入）
+
+    // ---- 同步拖动状态 ----
+    struct DragOrig { HWND hwnd; RECT rc; };
+    bool  m_dragActive = false;
+    HWND  m_dragAnchor = nullptr;
+    POINT m_dragDelta  = { 0, 0 };   // 锚点窗口相对起始位置的累计位移
+    std::vector<DragOrig> m_dragOrig;
     POINT m_lastMouse = { 0, 0 };   // 鼠标钩子最近一次的屏幕坐标
     UINT  m_ticks  = 0;
     UINT  m_msgTaskbarCreated = 0;

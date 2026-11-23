@@ -15,8 +15,8 @@ const int kTitleH = 56;
 const int kSideW  = 228;
 const int kCX0    = 252;    // 右侧内容左边界
 const int kCX1    = 866;    // 右侧内容右边界
-const int kRowH   = 46;
-const int kRowTop = 132;
+const int kRowH   = 42;
+const int kRowTop = 130;
 const int kFootTop = kWinH - 68;
 
 // ---------------- 数据 ----------------
@@ -36,13 +36,14 @@ const RowDef kRows[] = {
     { &AppConfig::bindUnpinAll, L"取消全部置顶",        L"一次性取消所有窗口的置顶" },
     { &AppConfig::bindSelect,   L"批量选择窗口",        L"绑定后按住它点窗口，即把该窗口加入 / 移出选择集" },
     { &AppConfig::bindBatchPin, L"批量置顶 / 取消置顶", L"有选中窗口时作用于全部选中；没有选中时作用于当前窗口" },
+    { &AppConfig::bindSelectAll, L"全选 / 取消全选窗口", L"一次选中桌面上所有未最小化窗口；已全选时再按一次则清空" },
     { &AppConfig::bindMenu,     L"打开管理菜单",        L"在鼠标位置弹出完整的管理菜单" },
 };
 const int kRowCount = (int)(sizeof(kRows) / sizeof(kRows[0]));
 
 struct NavDef { const wchar_t* label; };
 const NavDef kNav[] = {
-    { L"快捷键" }, { L"边框外观" }, { L"弹窗提醒" }, { L"关于" },
+    { L"快捷键" }, { L"边框外观" }, { L"弹窗提醒" }, { L"行为" }, { L"关于" },
 };
 const int kNavCount = (int)(sizeof(kNav) / sizeof(kNav[0]));
 
@@ -106,18 +107,19 @@ int PX(int v) { return (int)(v * g_scale + 0.5f); }
 // ---------------- 布局 ----------------
 
 RECT NavRect(int i) { RECT r = { 12, 72 + i * 46, kSideW - 12, 72 + i * 46 + 38 }; return r; }
-RECT RowFieldRect(int i) { RECT r = { 470, kRowTop + i * kRowH + 6, kCX1, kRowTop + i * kRowH + 40 }; return r; }
+RECT RowFieldRect(int i) { RECT r = { 470, kRowTop + i * kRowH + 5, kCX1, kRowTop + i * kRowH + 35 }; return r; }
 RECT RowClearRect(int i) { RECT f = RowFieldRect(i); RECT r = { f.right - 34, f.top + 3, f.right - 6, f.bottom - 3 }; return r; }
 
 RECT SwatchRect(int kind, int i)
 {
-    RECT r = { 470 + i * 34, kRowTop + kind * 58 + 1, 470 + i * 34 + 26, kRowTop + kind * 58 + 27 };
+    // 间距 32（26 色块 + 6 空隙）：7 个预设收在 470~688，
+    // 「自定义…」从 700 起，右边的 #RRGGBB 才不会顶出 kCX1
+    RECT r = { 470 + i * 32, kRowTop + kind * 58 + 1, 470 + i * 32 + 26, kRowTop + kind * 58 + 27 };
     return r;
 }
 RECT CustomRect(int kind)
 {
-    RECT r = { 470 + kPresetCount * 34 + 10, kRowTop + kind * 58 + 1,
-               470 + kPresetCount * 34 + 10 + 92, kRowTop + kind * 58 + 27 };
+    RECT r = { 700, kRowTop + kind * 58 + 1, 792, kRowTop + kind * 58 + 27 };
     return r;
 }
 RECT ThickRect(int px)
@@ -126,6 +128,12 @@ RECT ThickRect(int px)
     return r;
 }
 RECT SwitchRect(int i)
+{
+    RECT r = { 772, kRowTop + i * 52 + 8, 816, kRowTop + i * 52 + 32 };
+    return r;
+}
+
+RECT BehaveSwitchRect(int i)
 {
     RECT r = { 772, kRowTop + i * 52 + 8, 816, kRowTop + i * 52 + 32 };
     return r;
@@ -173,6 +181,15 @@ void DrawNavIcon(Gdiplus::Graphics& gfx, int idx, const Gdiplus::RectF& r, COLOR
         ui::StrokeRound(gfx, Gdiplus::RectF(r.X, r.Y + 3, r.Width - 2, r.Height - 5), 3.0f, col, 1.5f);
         gfx.FillEllipse(&br, r.X + r.Width - 6.0f, r.Y, 6.5f, 6.5f);
         break;
+    case 3: {  // 行为：两个方块 + 斜向箭头
+        ui::StrokeRound(gfx, Gdiplus::RectF(r.X, r.Y + 2, 7.0f, 7.0f), 2.0f, col, 1.5f);
+        ui::StrokeRound(gfx, Gdiplus::RectF(r.X + 10.0f, r.Y + 10.0f, 7.0f, 7.0f), 2.0f, col, 1.5f);
+        Gdiplus::Pen p(ui::C(col), 1.5f);
+        p.SetStartCap(Gdiplus::LineCapRound);
+        p.SetEndCap(Gdiplus::LineCapRound);
+        gfx.DrawLine(&p, r.X + 6.0f, r.Y + 12.0f, r.X + 12.0f, r.Y + 7.0f);
+        break;
+    }
     default: { // 关于
         Gdiplus::Pen p(ui::C(col), 1.5f);
         gfx.DrawEllipse(&p, r.X, r.Y, r.Width, r.Height);
@@ -246,6 +263,12 @@ int HitThick(POINT p)
 int HitSwitch(POINT p)
 {
     for (int i = 0; i < kNotifyCount; ++i) { RECT r = SwitchRect(i); if (InRect(r, p)) return i; }
+    return -1;
+}
+
+int HitBehaveSwitch(POINT p)
+{
+    for (int i = 0; i < 2; ++i) { RECT r = BehaveSwitchRect(i); if (InRect(r, p)) return i; }
     return -1;
 }
 
@@ -337,8 +360,8 @@ void PaintPageLook(Gdiplus::Graphics& gfx)
         // 当前色值
         COLORREF cc = ColOf(s.work, k);
         ui::Text(gfx, tmd::Format(L"#%02X%02X%02X", GetRValue(cc), GetGValue(cc), GetBValue(cc)),
-                 Gdiplus::RectF((REAL)cbr.right + 12, (REAL)cbr.top, 90.0f, (REAL)(cbr.bottom - cbr.top)),
-                 11.5f, ui::kSubText);
+                 Gdiplus::RectF((REAL)cbr.right + 10, (REAL)cbr.top, 62.0f, (REAL)(cbr.bottom - cbr.top)),
+                 10.5f, ui::kSubText);
     }
 
     const int ty = kRowTop + 3 * 58;
@@ -378,6 +401,37 @@ void PaintPageNotify(Gdiplus::Graphics& gfx)
         RECT sr = SwitchRect(i);
         DrawSwitch(gfx, sr, on);
     }
+}
+
+void PaintPageBehavior(Gdiplus::Graphics& gfx)
+{
+    ui::Text(gfx, L"行为", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
+    ui::Text(gfx, L"这两项会影响日常操作手感，开关状态立即写入配置，下次启动保持。",
+             Gdiplus::RectF((REAL)kCX0, 100.0f, (REAL)(kCX1 - kCX0), 20.0f), 11.5f, ui::kSubText);
+
+    struct Line { const wchar_t* label; const wchar_t* desc; bool on; };
+    const Line rows[2] = {
+        { L"同步拖动（多选一起移动）",
+          L"选中 2 个以上窗口后，按住任意一个选中窗口拖动，其余按相同位移一起走", s.work.syncDrag },
+        { L"显示置顶标记",
+          L"被置顶的窗口描边；当前目标与批量选中各用一种颜色，线宽 +2px", s.work.showMarker },
+    };
+
+    for (int i = 0; i < 2; ++i) {
+        const int y = kRowTop + i * 52;
+        ui::Text(gfx, rows[i].label, Gdiplus::RectF((REAL)kCX0, (REAL)y + 2, 420.0f, 22.0f),
+                 13.0f, ui::kTitle);
+        ui::Text(gfx, rows[i].desc, Gdiplus::RectF((REAL)kCX0, (REAL)y + 23, 470.0f, 20.0f),
+                 11.0f, ui::kSubText);
+        DrawSwitch(gfx, BehaveSwitchRect(i), rows[i].on);
+    }
+
+    ui::Text(gfx, L"同步拖动的边界：锚点窗口被最小化 / 关闭 / 取消选中时立即停止跟随。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)kRowTop + 118, (REAL)(kCX1 - kCX0), 20.0f),
+             11.0f, ui::kSubText);
+    ui::Text(gfx, L"其余窗口若最小化、隐藏或已关闭，会跳过不移动，但仍留在选择集里。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)kRowTop + 140, (REAL)(kCX1 - kCX0), 20.0f),
+             11.0f, ui::kSubText);
 }
 
 void PaintPageAbout(Gdiplus::Graphics& gfx)
@@ -457,6 +511,7 @@ void Paint(HWND hwnd)
         case 0: PaintPageHotkeys(gfx); break;
         case 1: PaintPageLook(gfx);    break;
         case 2: PaintPageNotify(gfx);  break;
+        case 3: PaintPageBehavior(gfx); break;
         default: PaintPageAbout(gfx);  break;
         }
 
@@ -481,6 +536,8 @@ void Paint(HWND hwnd)
             hint = L"颜色与粗细会写进配置，下次启动保持一致。";
         } else if (s.page == 2) {
             hint = L"分类开关独立保存，随时可改。";
+        } else if (s.page == 3) {
+            hint = L"同步拖动只在「选中 2 个以上窗口」时生效，单选拖动不受影响。";
         } else {
             hint = L"按 Esc 或点右上角关闭窗口。";
         }
@@ -715,7 +772,8 @@ void UpdateHover(POINT p)
     upd(s.hotSwatch, s.page == 1 ? HitSwatch(p) : -1);
     upd(s.hotCustom, s.page == 1 ? HitCustom(p) : -1);
     upd(s.hotThick, s.page == 1 ? HitThick(p) : -1);
-    upd(s.hotSwitch, s.page == 2 ? HitSwitch(p) : -1);
+    upd(s.hotSwitch, s.page == 2 ? HitSwitch(p)
+                    : (s.page == 3 ? HitBehaveSwitch(p) : -1));
 
     if (s.saveBtn.Hit(p) != s.saveBtn.hover)   { s.saveBtn.hover = !s.saveBtn.hover; dirty = true; }
     if (s.cancelBtn.Hit(p) != s.cancelBtn.hover) { s.cancelBtn.hover = !s.cancelBtn.hover; dirty = true; }
@@ -811,14 +869,8 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
             }
             const int cu = HitCustom(p);
             if (cu >= 0) {
-                static COLORREF customs[16] = {};
-                CHOOSECOLORW cc = {};
-                cc.lStructSize  = sizeof(cc);
-                cc.hwndOwner    = hwnd;
-                cc.rgbResult    = ColOf(s.work, cu);
-                cc.lpCustColors = customs;
-                cc.Flags        = CC_FULLOPEN | CC_RGBINIT;
-                if (ChooseColorW(&cc)) ColOf(s.work, cu) = cc.rgbResult;
+                COLORREF c = ColOf(s.work, cu);
+                if (tmd::ChooseColorTopmost(hwnd, c)) ColOf(s.work, cu) = c;
                 Repaint(hwnd);
                 return 0;
             }
@@ -832,6 +884,10 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
                 Repaint(hwnd);
                 return 0;
             }
+        } else if (s.page == 3) {
+            const int sw = HitBehaveSwitch(p);
+            if (sw == 0) { s.work.syncDrag = !s.work.syncDrag; Repaint(hwnd); return 0; }
+            if (sw == 1) { s.work.showMarker = !s.work.showMarker; Repaint(hwnd); return 0; }
         }
 
         if (p.y < kTitleH) {

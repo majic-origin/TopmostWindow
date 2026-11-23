@@ -10,10 +10,15 @@
 :: 方式一：VS 开发者命令提示符里执行
 build.bat
 
-:: 方式二：CMake
+:: 方式二：不想开 VS 开发者提示符，也不想让 vcvars 碰 reg.exe —— 直接用这个
+tools\build-local.bat
+
+:: 方式三：CMake
 cmake -B out -A x64
 cmake --build out --config Release
 ```
+
+`tools\build-local.bat` 自己按最新版本号拼出 MSVC 与 Windows SDK 的 `INCLUDE / LIB / PATH`，然后调 `build.bat`，只有一个 exe 的输出位置和方式一完全一样。它不调用 `vcvars64.bat`（后者会跑 `reg.exe`，在禁用注册表工具的机器上会直接失败）；脚本里也刻意不写 `if ... (` 块，因为 `C:\Program Files (x86)\...` 里的括号会被 cmd 当成块结束符。
 
 `build.bat` 先跑 `rc /fo app.res ..\src\app.rc` 生成图标与版本资源，再和源码一起链接；`build.bat` 本身必须是纯 ASCII（cmd 按 OEM 代码页读批处理，中文注释会被拆断）。
 
@@ -27,7 +32,9 @@ cmake --build out --config Release
 | 隐藏当前窗口 | 默认 `Ctrl+H`；有批量选中时隐藏全部选中 |
 | 显示全部隐藏窗口 | 默认 `Ctrl+Shift+H` |
 | 批量选择窗口 | 按住默认的 `Ctrl` 点窗口即可加入 / 移出选择集，可连续选多个（绿框标出） |
+| 全选 / 取消全选 | 默认 `Ctrl+Shift+A`：一次选中所有未最小化窗口，再按一次清空 |
 | 批量隐藏 / 批量置顶 | 选好后按 `Ctrl+H` 隐藏全部选中；按 `Ctrl+鼠标右键` 批量置顶 / 取消置顶 |
+| 同步拖动 | 开启后（菜单 →「批量选择」→「同步拖动」或设置 →「行为」），选中多个窗口拖任意一个，其余同位移跟随 |
 | 取消全部置顶 | 默认 `Ctrl+Shift+鼠标右键`（可改），或在菜单 →「置顶窗口列表」→「全部取消置顶」 |
 | 切换置顶窗口 | 默认 `Win+滚轮下滚` 下一个 / `Win+滚轮上滚` 上一个（可改成任意键鼠组合） |
 | 快速切换 | 左键单击托盘图标 = 对当前前台窗口切换置顶 |
@@ -35,7 +42,7 @@ cmake --build out --config Release
 | 置顶窗口列表 | 菜单 →「置顶窗口列表」，勾选当前目标；点击条目可直接切到该窗口 |
 | 透明度 | 菜单 →「窗口透明度」→ 100%~20%（调节时自动置顶，便于观察） |
 | 分组布局 | 菜单 →「分组布局」→「保存当前置顶布局…」输入名称；「恢复布局」一键复位 |
-| 边框外观 | 菜单 →「置顶标记外观」→ 置顶边框颜色 / 选中窗口边框颜色 / 边框粗细 1~10px / 显示开关 |
+| 边框外观 | 菜单 →「置顶标记外观」→ 置顶边框颜色 / 选中窗口边框颜色 / 批量选中边框颜色 / 边框粗细 1~10px / 显示开关 |
 | 弹窗提醒 | 菜单 →「弹窗提醒」→ 分类开关：置顶提示 / 切换提示 / 透明度提示 / 布局提示 / 系统与错误提示，另有「全部静音」「全部开启」「全部关闭」 |
 | 开机自启 | 菜单 →「开机自动启动」勾选，写入 `HKCU\...\Run` |
 | 改快捷键 | 菜单 →「**快捷键与设置…**」打开设置大窗口，一页里改完所有快捷键 |
@@ -78,6 +85,7 @@ cmake --build out --config Release
 | 快捷键 | 9 项，每行一个输入框：**点一下就开始录制**，按下的组合键直接显示在框里；右侧 ✕ 清除该项 |
 | 边框外观 | 三套配色（置顶 / 当前选中 / 批量选中）各 7 个预设色 + 系统取色器，边框粗细 1~10px |
 | 弹窗提醒 | 6 个分类开关（全部静音 + 5 类），开关状态就是配置 |
+| 行为 | 同步拖动、显示置顶标记两个开关，改完即时落盘 |
 | 关于 | 版本与用法速览 |
 
 交互细节：
@@ -90,11 +98,33 @@ cmake --build out --config Release
 - 点「保存」时统一校验：**重复组合**（两项绑成一样，比如把"置顶"和"批量置顶"都设成 `Ctrl+右键`）+ **键盘占用**（用 `RegisterHotKey` 逐个试注册，失败立刻红字点名是哪一项）——校验不过就不关闭窗口。
 - 布局全部以 96 DPI 的逻辑坐标书写，绘制时 `Graphics::ScaleTransform(dpi/96)`、窗口尺寸同步放大，所以 125% / 150% 缩放下不会变小也不会糊。
 
+### 全选与同步拖动
+
+**全选**：`bindSelectAll`，默认 `Ctrl+Shift+A`（`MOD_CONTROL|MOD_SHIFT` + `A`）。在 `menu.cpp` 的「批量选择」子菜单里点「全选 / 取消全选未最小化窗口」走同一个 `App::SelectAllWindows()`，快捷键本身可以设成任意键鼠组合（设置 → 快捷键第 9 行）。
+
+判定规则（`EnumSelectable`）：`IsWindowVisible` + 非 `IsIconic` + 无 owner + 非 `WS_EX_TOOLWINDOW` + 有标题 + 尺寸大于 40×40 + 不是本进程窗口 + 未被 DWM cloak（UWP 关闭后残留的幽灵窗口）。**已是"全选状态"**（当前选择集覆盖了这些窗口）时再按一次 = 清空选择，否则用这批窗口替换选择集。
+
+**同步拖动**：`AppConfig::syncDrag`（`[general] syncDrag=1`）。开 / 关三个入口——托盘菜单「批量选择 → 同步拖动」、设置窗口「行为」页的开关、以及 `IDM_SYNCDRAG` 命令本身；改完立刻 `SaveCfg()`，下次启动保持。
+
+触发与边界：
+
+| 阶段 | 行为 |
+|---|---|
+| 触发条件 | 开关打开 + 选择集 ≥ 2 个窗口 + 左键按下点落在某个选中窗口上（`WindowFromPoint` → `GetAncestor(GA_ROOT)` 后比对选择集） |
+| 不触发 | 按住 `Ctrl` 时（那是「批量选择」手势）、选择集不足 2 个、点在未选中的窗口上 |
+| 跟随算法 | 记录每个选中窗口的 `GetWindowRect` 起始矩形；锚点窗口被它自己的拖动循环移动后，按 `锚点当前 left/top - 起始 left/top` 得到**绝对位移**，其余窗口 `SetWindowPos` 到 `各自起始矩形 + 位移` |
+| 为什么不累加增量 | 跨进程 `SetWindowPos` 之后 `GetWindowRect` 有 DWM 延迟，累加会越拖越偏；绝对位移天然幂等 |
+| 抬起收尾 | `WM_LBUTTONUP` 时按锚点最终位置再对齐一次，避免最后一帧没跟上 |
+| 锚点被最小化 / 关闭 / 取消选中 | 立即 `SyncDragEnd()`，其余窗口停在当前位移，不再跟随 |
+| 其余窗口被最小化 / 隐藏 | 跳过不移动，但仍留在选择集里（恢复后不会自己跳位） |
+| 其余窗口被关闭 | 跳过；下一次 `PruneSelection()` 会自动把它从选择集里清掉 |
+| 拖动途中改选择集 | 每帧都按当前选择集过滤，取消选中的窗口立刻停止跟随 |
+
 ### 边框外观
 
 - **置顶边框颜色**：普通置顶窗口的描边颜色，7 个预设 + 「自定义颜色…」（系统取色器 / 设置窗口）。
 - **选中窗口边框颜色**：当前操作目标（最近一次置顶、或用滚轮/列表切过去的窗口）用另一种颜色，并且线宽 +2px、内圈多一条细线，一眼能区分"谁是当前选中的"。
-- **批量选中边框颜色**：批量选择集的颜色（默认绿），同样 +2px + 内描边；即使窗口没置顶也会画框，方便确认选了谁。
+- **批量选中边框颜色**：批量选择集的颜色（默认绿），同样 +2px + 内描边；即使窗口没置顶也会画框，方便确认选了谁。托盘菜单里这三种颜色都能改（预设 7 色 + 自定义），与设置窗口「边框外观」页完全对齐。
 - **边框粗细**：1~10 像素，改完立刻重绘；已置顶的窗口全部同步，不会丢失。
 - 全部即时生效并写入配置。
 
@@ -204,6 +234,8 @@ tools/make-icon.ps1  PNG → ICO 生成脚本
 
 **鼠标钩子的坑**：`WH_MOUSE_LL` 的 `wParam` 才是消息号，`lParam` 是 `MSLLHOOKSTRUCT`（不是 `MSG`）。按 `MSG` 解析会读到垃圾 `message`，命中判断永远不成立——滚轮增量在 `mouseData` 的高位，侧键在 `mouseData` 的 `HIWORD`。
 
+**选中色跟着鼠标走**：`m_target` 原来只由快捷键 / 菜单 / 滚轮 / 列表点击赋值，用鼠标点一下置顶窗口时系统只是换了前台窗口，没有任何消息通知本程序，描边就停在旧窗口上——表现正是"选中了但不换色"。修法是 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND, ..., WINEVENT_OUTOFCONTEXT)`：回调里**只** `PostMessage` 到主窗口（WinEvent 回调期间不能重入 `UpdateLayeredWindow`），主窗口收到后再比对 `GetForegroundWindow()` 与登记表，命中规则有三条——本进程窗口不算、已在批量选择集里不算（那是绿框）、没有置顶的窗口不算。200ms 的标记定时器里再调一次同一个 `SyncForegroundTarget()` 兜底，钩子失效时最多慢一拍。`RefreshOverlayNow()` 另外加了道闸：目标窗口已被取消置顶就不再传 `active`，否则取消置顶后那条"选中色"描边会一直挂在窗口上。
+
 **视觉标记**：不注入目标进程。创建一个覆盖整个虚拟屏幕的 `WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 弹出窗口，`CreateDIBSection` 建 32bpp 后备缓冲，直接按行写像素画四边条，再 `UpdateLayeredWindow(..., ULW_ALPHA)` 提交。200ms 重绘一次，窗口矩形用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 取真实可视边界（`GetWindowRect` 会多算 8px 不可见边框）。每帧末尾用 `SetWindowPos(HWND_TOPMOST, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)` 重新提到最前——否则其它 topmost 窗口被激活后会盖住描边。
 
 **显隐状态**：覆盖层在"没有可画窗口"时会 `ShowWindow(SW_HIDE)`。这是分层窗口的坑——`UpdateLayeredWindow` 只更新内容、不会把隐藏的窗口显示出来，所以恢复画之前必须显式 `ShowWindow(SW_SHOWNOACTIVATE)`，否则隐藏过一次就再也画不出来（v2 的"全部丢边框"就是这个）。
@@ -211,6 +243,10 @@ tools/make-icon.ps1  PNG → ICO 生成脚本
 **菜单命令 ID 分段**：每类功能占独立号段（透明度 200、置顶列表 400、颜色 620/640、粗细 660、通知 700…），分发时用 `id >= base && id < base + 精确数量` 判定。v2 曾把"自定义颜色"（640）和"粗细"（680）放进 620~669 / 650~699 的宽松区间里，被前面的预设色分支整段吞掉——表现为点自定义颜色没反应、改粗细不生效。
 
 **配置落盘**：`WritePrivateProfileString` 内部有缓存，写完必须再调一次 `WritePrivateProfileString(nullptr, nullptr, nullptr, file)` 强制 flush，否则其它进程（包括面板预览、脚本）读到的还是旧值。
+
+**取色器被置顶窗口压住**：`ChooseColorW` 弹出的对话框本身不是 topmost，而本程序管理的置顶窗口是 topmost，托盘里点「自定义颜色…」时对话框会开到置顶窗口下面，看起来就是"点了没反应"。`tmd::ChooseColorTopmost()` 起一个看门线程（最多盯 4 秒、每 100ms 一次 `EnumThreadWindows` 找本线程的 `#32770`），对话框一出现就 `SetWindowPos(HWND_TOPMOST)` + `SetForegroundWindow`。菜单和设置窗口都走这一个入口。
+
+**覆盖层后备位图**：`EnsureBuffer()` 重建 DIB 前必须先把旧位图从内存 DC 里换出去（换一块 1×1 占位图），否则 `DeleteObject` 会因"对象仍被 DC 选中"而失败，改分辨率/接投影时每来一次就泄漏一个位图。
 
 **透明度**：动态加 `WS_EX_LAYERED` + `SetLayeredWindowAttributes(..., LWA_ALPHA)`。记录"分层样式是不是我们加的"，恢复 100% 时只移除自己加的那一层，不破坏应用原有的分层属性。样式变更后补一次 `SWP_FRAMECHANGED`。
 
@@ -225,3 +261,13 @@ tools/make-icon.ps1  PNG → ICO 生成脚本
 - 以 `asInvoker` 运行。目标窗口若以管理员权限运行，受 UIPI 限制，置顶操作可能无效——需要时以管理员身份启动本程序（清单里 `uiAccess="false"`，未做签名）。
 - 全屏独占（Exclusive Fullscreen）游戏上覆盖层不显示，属预期。
 - 透明度依赖窗口自身的分层合成能力，个别 DirectComposition 自绘窗口可能忽略 `LWA_ALPHA`。
+
+## 许可证
+
+MIT License，见 [LICENSE](LICENSE)。
+
+```
+Copyright (c) 2026 majic-origin
+```
+
+可以自由使用、修改、分发、商用，保留版权声明即可；软件按"现状"提供，不含任何担保。

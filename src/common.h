@@ -33,6 +33,7 @@
 #define HK_SHOW_ALL   7
 #define HK_SELECT     8   // Ctrl+左键：把光标下的窗口加入/移出批量选择
 #define HK_BATCH_PIN  9   // Ctrl+右键：批量置顶 / 取消置顶
+#define HK_SELECT_ALL 10  // Ctrl+Shift+A：全选未最小化窗口 / 取消全选
 
 // 鼠标键的伪键值（与键盘 VK 共用同一字段，靠 device 区分）
 #define TMD_MOUSE_LEFT       1
@@ -96,5 +97,10 @@ std::wstring MouseButtonName(UINT code);
 
 // 组合键的完整可读描述（含鼠标键）
 std::wstring DescribeBinding(const Binding& b);
+
+// 系统取色器（CC_FULLOPEN 的 RGB 色板）
+// 弹出的对话框本身不是 topmost，被置顶窗口/置顶面板压住时会"看起来没反应"，
+// 所以这里起一个看门线程，对话框一出现就把它提到最前。
+bool ChooseColorTopmost(HWND owner, COLORREF& inout);
 
 } // namespace tmd

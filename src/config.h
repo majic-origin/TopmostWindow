@@ -33,9 +33,12 @@ struct AppConfig
     // 批量选择（把光标下的窗口加入选择集）与批量置顶
     Binding bindSelect  { TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_LEFT };
     Binding bindBatchPin{ TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_RIGHT };
+    // 全选 / 取消全选未最小化窗口
+    Binding bindSelectAll { TMD_DEV_KEYBOARD, MOD_CONTROL | MOD_SHIFT, 'A' };
 
     bool     autoStart       = false;                 // 开机自启
     bool     showMarker      = true;                  // 置顶窗口视觉标记
+    bool     syncDrag        = false;                 // 多选后拖动一个，其余同步移动
     COLORREF markerColor     = RGB(255, 110, 20);      // 普通置顶窗口的边框颜色
     COLORREF markerActive    = RGB(27, 111, 224);      // 当前选中窗口的边框颜色
     COLORREF markerSelect    = RGB(22, 163, 74);       // 批量选中窗口的边框颜色
