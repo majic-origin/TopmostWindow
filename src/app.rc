@@ -1,0 +1,36 @@
+#include "resource.h"
+
+// 应用图标：多尺寸 ICO（16/20/24/32/40/48/64/128/256），由 assets/logo/png/favicon-512.png 生成
+IDI_APP ICON "app.ico"
+
+// 0x09 = LANG_ENGLISH, 0x01 = SUBLANG_ENGLISH_US（不包含 winres.h 时用数值）
+LANGUAGE 0x09, 0x01
+
+// 资源名必须是 1：Windows / 资源管理器只按名字 1 查 RT_VERSION
+1 VERSIONINFO
+FILEVERSION    1,4,0,0
+PRODUCTVERSION 1,4,0,0
+FILEFLAGSMASK  0x3fL
+FILEFLAGS      0x0L
+FILEOS         0x00040004L
+FILETYPE       0x1L
+FILESUBTYPE    0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "YG"
+            VALUE "FileDescription",  "TopMostDesk - Always On Top helper"
+            VALUE "FileVersion",      "1.4.0.0"
+            VALUE "InternalName",     "TopMostDesk"
+            VALUE "OriginalFilename", "TopMostDesk.exe"
+            VALUE "ProductName",      "TopMostDesk"
+            VALUE "ProductVersion",   "1.4.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
