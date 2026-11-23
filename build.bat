@@ -25,7 +25,8 @@ cl /nologo /std:c++17 /EHsc /O2 /MT /W3 /utf-8 ^
    ..\src\main.cpp ..\src\app.cpp ..\src\menu.cpp ..\src\common.cpp ^
    ..\src\config.cpp ..\src\winmgr.cpp ..\src\overlay.cpp ..\src\groups.cpp ^
    ..\src\dialogs.cpp ..\src\inputbox.cpp ..\src\ui_theme.cpp ^
-   ..\src\input_hook.cpp ..\src\tray.cpp app.res ^
+   ..\src\input_hook.cpp ..\src\settings.cpp ..\src\toast.cpp ^
+   ..\src\tray.cpp app.res ^
    /Fe:TopMostDesk.exe ^
    /link /SUBSYSTEM:WINDOWS ^
    user32.lib gdi32.lib gdiplus.lib comdlg32.lib shell32.lib shlwapi.lib ^

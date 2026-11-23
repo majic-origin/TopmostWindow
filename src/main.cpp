@@ -38,6 +38,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR cmdLine, int)
         if (cmdLine && wcsstr(cmdLine, L"--test-hotkey")) testMode = 1;
         else if (cmdLine && wcsstr(cmdLine, L"--test-input")) testMode = 2;
         else if (cmdLine && wcsstr(cmdLine, L"--test-color")) testMode = 4;
+        else if (cmdLine && wcsstr(cmdLine, L"--test-settings")) testMode = 5;
         App app(inst, testMode);
         if (!app.Init()) {
             MessageBoxW(nullptr, L"初始化失败：无法创建主窗口。", L"TopMostDesk", MB_OK | MB_ICONERROR);

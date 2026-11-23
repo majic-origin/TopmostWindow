@@ -24,18 +24,21 @@ cmake --build out --config Release
 | 功能 | 操作 |
 | --- | --- |
 | 置顶 / 取消置顶 | 激活目标窗口，按 `Win+Shift+T`（默认，可改） |
+| 隐藏当前窗口 | 默认 `Ctrl+H`；有批量选中时隐藏全部选中 |
+| 显示全部隐藏窗口 | 默认 `Ctrl+Shift+H` |
+| 批量选择窗口 | 按住默认的 `Ctrl` 点窗口即可加入 / 移出选择集，可连续选多个（绿框标出） |
+| 批量隐藏 / 批量置顶 | 选好后按 `Ctrl+H` 隐藏全部选中；按 `Ctrl+鼠标右键` 批量置顶 / 取消置顶 |
 | 取消全部置顶 | 默认 `Ctrl+Shift+鼠标右键`（可改），或在菜单 →「置顶窗口列表」→「全部取消置顶」 |
 | 切换置顶窗口 | 默认 `Win+滚轮下滚` 下一个 / `Win+滚轮上滚` 上一个（可改成任意键鼠组合） |
 | 快速切换 | 左键单击托盘图标 = 对当前前台窗口切换置顶 |
 | 完整管理菜单 | 右键单击托盘图标，或 `Win+Shift+M` |
 | 置顶窗口列表 | 菜单 →「置顶窗口列表」，勾选当前目标；点击条目可直接切到该窗口 |
 | 透明度 | 菜单 →「窗口透明度」→ 100%~20%（调节时自动置顶，便于观察） |
-| 隐藏 / 恢复 | 菜单 →「隐藏该窗口」/「显示全部隐藏窗口 (n)」 |
 | 分组布局 | 菜单 →「分组布局」→「保存当前置顶布局…」输入名称；「恢复布局」一键复位 |
 | 边框外观 | 菜单 →「置顶标记外观」→ 置顶边框颜色 / 选中窗口边框颜色 / 边框粗细 1~10px / 显示开关 |
 | 弹窗提醒 | 菜单 →「弹窗提醒」→ 分类开关：置顶提示 / 切换提示 / 透明度提示 / 布局提示 / 系统与错误提示，另有「全部静音」「全部开启」「全部关闭」 |
 | 开机自启 | 菜单 →「开机自动启动」勾选，写入 `HKCU\...\Run` |
-| 改快捷键 | 菜单 →「快捷键」→ 置顶开关 / 上一个窗口 / 下一个窗口 / 取消全部置顶 / 打开菜单 |
+| 改快捷键 | 菜单 →「**快捷键与设置…**」打开设置大窗口，一页里改完所有快捷键 |
 | 退出 | 菜单 →「退出」 |
 
 ### 托盘菜单行为（点设置不关闭）
@@ -47,26 +50,51 @@ cmake --build out --config Release
 
 实现方式：`ShowContextMenu()` 里是一个 `for` 循环 —— `TrackPopupMenuEx(TPM_RETURNCMD)` 拿到命令后分发，若命中 `IsStickyCommand()` 就重新 `BuildMenu()` 再弹一次；返回 0（点空白 / Esc）或命中退出才 `break`。菜单每次重建，勾选状态、置顶计数、快捷键文案都是最新的。锚点固定在首次弹出时的鼠标位置，所以重开时菜单不跳动，看起来就是"没关过"。循环上限 128 次防止异常情况下死循环。
 
-### 快捷键支持鼠标
+### 鼠标键与批量选择
 
 `RegisterHotKey` 天生只认键盘，所以鼠标键走另一条通道：常驻一个 `WH_MOUSE_LL` 全局钩子，命中配置的组合时 `PostMessage` 给主窗口并吞掉这次事件（不会同时触发目标窗口的右键菜单或滚动）。
 
 - 可绑：鼠标左键 / 右键 / 中键 / 侧键1 / 侧键2 / 滚轮上滚 / 滚轮下滚。
-- 必须搭配至少一个修饰键（`Win + 鼠标右键`、`Ctrl + 鼠标中键` 之类），避免误触。
-- 默认绑定：置顶 `Win+Shift+T`、下一个 `Win+滚轮下`、上一个 `Win+滚轮上`、取消全部置顶 `Ctrl+Shift+鼠标右键`。
+- 建议搭配修饰键（`Ctrl + 鼠标右键`、`Alt + 中键`）；右键/中键/侧键/滚轮也允许不带修饰键（左键除外，会抢掉全系统点击）。
+- 默认绑定：置顶 `Win+Shift+T`、隐藏 `Ctrl+H`、显示全部 `Ctrl+Shift+H`、下一个 `Win+滚轮下`、上一个 `Win+滚轮上`、取消全部置顶 `Ctrl+Shift+鼠标右键`、批量选择 `Ctrl+左键`、批量置顶 `Ctrl+右键`。
 - 注意 `Win + 鼠标键` 松手时系统仍会弹开始菜单，这是 Windows 自身行为；如果嫌碍事，改用 `Ctrl` / `Alt` 组合。
 
-### 快捷键设置框
+**批量选择**：`bindSelect`（默认 `Ctrl+左键`）命中后，钩子吞掉这次点击，用 `WindowFromPoint` + `GetAncestor(GA_ROOT)` 取光标下的顶层窗口，把它加入 / 移出选择集，绿框标出并弹一条"已选中 N 个窗口"。选中集在 `App::m_selected` 里，动作时按下面的规则联动：
 
-- 打开后直接按键盘组合或点鼠标键即可录制，**退格**清空、**回车**确认、**Esc** 取消（也可以点按钮）。
-- 录制期间同时挂 `WH_KEYBOARD_LL` 与 `WH_MOUSE_LL`，按键不会漏给其他程序，按 `Win` 也不会弹开始菜单。
-- 键盘组合录入时用 `RegisterHotKey` 试注册一次做占用校验，被占用立刻标红；鼠标组合不占用系统热键表，无需校验。
-- 启动时若首选键盘组合被占用，会按优先级自动退让（Ctrl+Alt+Shift+T → Ctrl+Alt+T → Ctrl+Alt+Shift+P）并写回配置。
+| 操作 | 有选中窗口 | 没有选中窗口 |
+| --- | --- | --- |
+| `Ctrl+H`（`HK_HIDE`） | 隐藏全部选中，然后清空选择 | 隐藏当前前台窗口 |
+| `Ctrl+右键`（`HK_BATCH_PIN`） | 只要有一个没置顶就全部置顶，否则全部取消 | 对当前前台窗口切换置顶 |
+| `Ctrl+Shift+H`（`HK_SHOW_ALL`） | 恢复所有被本软件隐藏的窗口 | 同上 |
+
+代价是 `Ctrl+左键` 变成了"本软件的选窗口手势"——在资源管理器里 Ctrl+点选文件也会被拦。不想用就把它改成 `Ctrl+Shift+左键` 之类更少用的组合，或在设置窗口里换一个更少用的组合。
+
+### 设置大窗口（快捷键一页改完）
+
+菜单 →「快捷键与设置…」打开一块 900×640（按系统 DPI 等比放大）的独立窗口，左侧分类导航、右侧就地设置，不用一层层翻菜单：
+
+| 分类 | 内容 |
+| --- | --- |
+| 快捷键 | 9 项，每行一个输入框：**点一下就开始录制**，按下的组合键直接显示在框里；右侧 ✕ 清除该项 |
+| 边框外观 | 三套配色（置顶 / 当前选中 / 批量选中）各 7 个预设色 + 系统取色器，边框粗细 1~10px |
+| 弹窗提醒 | 6 个分类开关（全部静音 + 5 类），开关状态就是配置 |
+| 关于 | 版本与用法速览 |
+
+交互细节：
+
+- 录制期间同时挂 `WH_KEYBOARD_LL` 与 `WH_MOUSE_LL`，只吞 `keydown`、放行 `keyup`（否则系统里的修饰键状态会卡住）；所以按 `Win` 不会弹开始菜单。
+- 鼠标支持左/右/中/侧键/滚轮方向。右键、中键、侧键、滚轮都可以**不带修饰键**单独绑定；只有"裸左键"被拒绝（会抢掉全系统的点击）。不带修饰键的项用橙色文字提示"该鼠标键会被本软件全局接管"。
+- **修饰键状态自己记账**：录制期间我们吞了 `keydown`，系统根本不知道你按了 Ctrl，只查 `GetAsyncKeyState` 会出现"先按住 Ctrl 再点输入框、结果记成裸右键"。所以钩子把每个修饰键的按下/抬起记在 `g_held` 里，再与系统状态取并集。
+- **滚轮不按落点判断**：按钮类必须点在设置窗口外才算录制（框内的点击要留给 UI）；滚轮没有落点概念，光标停在设置窗口上也能录。
+- 打开设置窗口前先 `UnregisterHotKey` 释放自己占用的组合，否则"改回原组合"会被自己挡住。
+- 点「保存」时统一校验：**重复组合**（两项绑成一样，比如把"置顶"和"批量置顶"都设成 `Ctrl+右键`）+ **键盘占用**（用 `RegisterHotKey` 逐个试注册，失败立刻红字点名是哪一项）——校验不过就不关闭窗口。
+- 布局全部以 96 DPI 的逻辑坐标书写，绘制时 `Graphics::ScaleTransform(dpi/96)`、窗口尺寸同步放大，所以 125% / 150% 缩放下不会变小也不会糊。
 
 ### 边框外观
 
-- **置顶边框颜色**：普通置顶窗口的描边颜色，7 个预设 + 「自定义颜色…」（系统取色器）。
+- **置顶边框颜色**：普通置顶窗口的描边颜色，7 个预设 + 「自定义颜色…」（系统取色器 / 设置窗口）。
 - **选中窗口边框颜色**：当前操作目标（最近一次置顶、或用滚轮/列表切过去的窗口）用另一种颜色，并且线宽 +2px、内圈多一条细线，一眼能区分"谁是当前选中的"。
+- **批量选中边框颜色**：批量选择集的颜色（默认绿），同样 +2px + 内描边；即使窗口没置顶也会画框，方便确认选了谁。
 - **边框粗细**：1~10 像素，改完立刻重绘；已置顶的窗口全部同步，不会丢失。
 - 全部即时生效并写入配置。
 
@@ -84,6 +112,18 @@ cmake --build out --config Release
 | 全部静音 | 一票否决，优先级最高 | 关 |
 
 `全部静音` 勾上后所有气泡都静默（菜单里的分类项同时置灰，表示"当前不会响"）；取消静音后各分类恢复各自的设置。全部开关都落在 `config.ini` 的 `[notify]` 段。
+
+### 弹窗实现：单实例 + 原地覆盖（`toast.h/.cpp`）
+
+系统气泡（`Shell_NotifyIcon` + `NIF_INFO`）是**队列制**：连续触发几次就排几个，每关一个才露出下一个，超时的还会堆进通知中心。所以这里不再用它，改成自绘的单实例弹窗：
+
+- **全局只有一个窗口**：`toast::Show()` 里 `EnsureWindow()` 只在第一次 `CreateWindowEx`，之后永远是同一个 `HWND`；新通知只做三件事——换文字、`InvalidateRect` 重画、`SetWindowPos(HWND_TOPMOST)` 提回最前。
+- **覆盖而不是新建**：`s.title / s.text / s.flags` 直接赋值，同一次显示里内容被整体替换，不存在"旧弹窗还挂在屏幕上"。
+- **同一事件 1 秒内连续触发只算一次**：`key`（取事件标题）与上次相同、且间隔 ≤ 1000ms 时判定为 burst，只更新文本、把自动关闭的 deadline 顺延到最后一次操作，不新增窗口也不额外闪。
+- **不同事件**：同样复用这个窗口，内容立刻覆盖（不排队、不叠放）。
+- **关闭方式**：最后一次更新后 2.8 秒自动消失；鼠标悬停时暂停倒计时；**点一下任意键即消失**，不需要找关闭按钮。
+- **不会被别的置顶窗口盖住**：200ms 的 watchdog 定时器把窗口反复 `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)`，同时兼做倒计时检查。
+- **尺寸按 DPI 走**：380×88 逻辑像素，绘制时 `ScaleTransform(dpi/96)`，圆角用 `SetWindowRgn`，配色按 `NIIF_INFO / WARNING / ERROR` 分成蓝 / 橙 / 红三套（`NIIF_INFO=1`、`NIIF_ERROR=3` 是位关系，必须按低四位取值判断，否则 INFO 会被判成 ERROR）。
 
 ## 应用图标
 
@@ -124,7 +164,8 @@ m_icon = LoadImageW(inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
 ### 隐藏的调试参数
 
 ```bat
-TopMostDesk.exe --test-hotkey   :: 启动后直接弹出快捷键设置框
+TopMostDesk.exe --test-settings  :: 启动后直接打开设置大窗口
+TopMostDesk.exe --test-hotkey    :: 启动后直接弹出单条快捷键录制框
 TopMostDesk.exe --test-input     :: 启动后直接弹出分组名称输入框
 TopMostDesk.exe --test-color     :: 启动后直接弹出系统取色器
 ```
@@ -136,16 +177,18 @@ TopMostDesk.exe --test-color     :: 启动后直接弹出系统取色器
 ```
 main.cpp        wWinMain：单实例互斥、DPI 感知、App 生命周期
 app.h/.cpp      App：隐藏主窗口 + 消息循环，动作分发、定时器、托盘事件
-menu.cpp        App::BuildMenu / HandleCommand：菜单装配、颜色/粗细/快捷键编辑
+menu.cpp        App::BuildMenu / HandleCommand：菜单装配、颜色/粗细/批量选择命令分发
+settings.h/.cpp 设置大窗口：左侧分页导航 + 快捷键就地录制 + 外观/提醒开关（GDI+ 自绘，按 DPI 缩放）
 winmgr.h/.cpp   WindowManager：被管理窗口状态表（置顶/透明度/隐藏）+ 安全封装
-overlay.h/.cpp  Overlay：单块透明点击穿透覆盖层，用逐像素 alpha 画置顶描边（双色）
-input_hook.h/.cpp  InputHook：全局 WH_MOUSE_LL 钩子，鼠标键映射成动作
+overlay.h/.cpp  Overlay：单块透明点击穿透覆盖层，用逐像素 alpha 画描边（置顶/当前/批量选中三色）
+input_hook.h/.cpp  InputHook：全局 WH_MOUSE_LL 钩子，鼠标键映射成动作（带屏幕坐标）
 groups.h/.cpp   GroupStore：布局快照的采集/匹配/恢复，持久化到 INI
 dialogs.h/.cpp  按键录制框（键盘钩子 + 鼠标钩子 + 占用校验）
 inputbox.cpp    分组名称输入框
 ui_theme.h/.cpp GDI+ 绘制封装：圆角卡片、按钮、文字、窗口圆角
-config.h/.cpp   AppConfig（4 组 Binding + 外观）读写、开机自启
-tray.h/.cpp     托盘图标（资源优先，缺失时运行时绘制）与气泡提示
+config.h/.cpp   AppConfig（9 组 Binding + 外观 + 提醒开关）读写、开机自启
+tray.h/.cpp     托盘图标（资源优先，缺失时运行时绘制），通知转交 toast
+toast.h/.cpp    单实例通知弹窗：内容原地覆盖 + 1s 合并 + 自动消失
 common.h/.cpp   公共定义、Binding 结构与名称格式化
 app.rc          图标 IDI_APP + VERSIONINFO 版本信息
 resource.h      资源 ID 与版本号宏
@@ -157,7 +200,7 @@ tools/make-icon.ps1  PNG → ICO 生成脚本
 
 **置顶**：`SetWindowPos(hwnd, HWND_TOPMOST / HWND_NOTOPMOST, ..., SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)`。状态以 `GWL_EXSTYLE & WS_EX_TOPMOST` 为准，定时 `Purge()` 同步外部程序自己造成的状态漂移。
 
-**全局热键**：键盘走 `RegisterHotKey` + `MOD_NOREPEAT`；鼠标走 `WH_MOUSE_LL`。两条通道最终都归一到同一个 `OnAction(id)`（`HK_TOGGLE / HK_NEXT / HK_PREV / HK_MENU`），目标窗口统一取 `GetForegroundWindow()`。
+**全局热键**：键盘走 `RegisterHotKey` + `MOD_NOREPEAT`；鼠标走 `WH_MOUSE_LL`。两条通道最终都归一到同一个 `OnAction(id)`（`HK_TOGGLE / HK_HIDE / HK_SHOW_ALL / HK_NEXT / HK_PREV / HK_UNPIN_ALL / HK_SELECT / HK_BATCH_PIN / HK_MENU`），目标窗口统一取 `GetForegroundWindow()`。
 
 **鼠标钩子的坑**：`WH_MOUSE_LL` 的 `wParam` 才是消息号，`lParam` 是 `MSLLHOOKSTRUCT`（不是 `MSG`）。按 `MSG` 解析会读到垃圾 `message`，命中判断永远不成立——滚轮增量在 `mouseData` 的高位，侧键在 `mouseData` 的 `HIWORD`。
 

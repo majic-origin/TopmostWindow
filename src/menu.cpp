@@ -64,10 +64,12 @@ HMENU App::BuildMenu()
                 (UINT_PTR)alphaMenu, L"窗口透明度");
 
     // ---- 隐藏 / 显示 ----
-    AppendMenuW(root, MF_STRING | (hasTarget ? 0 : MF_GRAYED), IDM_HIDE_TARGET, L"隐藏该窗口");
+    AppendMenuW(root, MF_STRING | (hasTarget ? 0 : MF_GRAYED), IDM_HIDE_TARGET,
+                (L"隐藏该窗口\t" + tmd::DescribeBinding(m_cfg.bindHide)).c_str());
     int hidden = m_wm.HiddenCount();
     AppendMenuW(root, MF_STRING | (hidden ? 0 : MF_GRAYED), IDM_SHOW_ALL,
-                tmd::Format(L"显示全部隐藏窗口 (%d)", hidden).c_str());
+                (tmd::Format(L"显示全部隐藏窗口 (%d)", hidden) + L"\t" +
+                 tmd::DescribeBinding(m_cfg.bindShowAll)).c_str());
     AppendMenuW(root, MF_SEPARATOR, 0, nullptr);
 
     // ---- 置顶窗口列表 ----
@@ -159,21 +161,35 @@ HMENU App::BuildMenu()
     AppendMenuW(root, MF_POPUP, (UINT_PTR)groupMenu, L"分组布局");
     AppendMenuW(root, MF_SEPARATOR, 0, nullptr);
 
-    // ---- 快捷键 ----
-    HMENU hk = CreatePopupMenu();
-    AppendMenuW(hk, MF_STRING, IDM_SETHOTKEY,
-                (L"置顶开关…  " + tmd::DescribeBinding(m_cfg.bindToggle) +
-                 (m_toggleHotkeyOk ? L"" : L"  (未生效)")).c_str());
-    AppendMenuW(hk, MF_STRING, IDM_SETNEXTHOTKEY,
-                (L"下一个窗口…  " + tmd::DescribeBinding(m_cfg.bindNext)).c_str());
-    AppendMenuW(hk, MF_STRING, IDM_SETPREVHOTKEY,
-                (L"上一个窗口…  " + tmd::DescribeBinding(m_cfg.bindPrev)).c_str());
-    AppendMenuW(hk, MF_STRING, IDM_SETUNPINHOTKEY,
-                (L"取消全部置顶…  " + tmd::DescribeBinding(m_cfg.bindUnpinAll)).c_str());
-    AppendMenuW(hk, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hk, MF_STRING, IDM_SETMENUHOTKEY,
-                (L"打开菜单…  " + tmd::DescribeBinding(m_cfg.bindMenu)).c_str());
-    AppendMenuW(root, MF_POPUP, (UINT_PTR)hk, L"快捷键");
+    // ---- 批量选择（按住设定键点窗口可多选，这里做批量动作）----
+    for (size_t i = 0; i < m_selected.size();) {
+        if (!IsWindow(m_selected[i])) m_selected.erase(m_selected.begin() + (long)i);
+        else ++i;
+    }
+    HMENU selMenu = CreatePopupMenu();
+    const UINT selN = (UINT)m_selected.size();
+    AppendMenuW(selMenu, MF_STRING | MF_GRAYED, IDM_NONE,
+                tmd::Format(L"已选中 %u 个窗口", selN).c_str());
+    AppendMenuW(selMenu, MF_SEPARATOR, 0, nullptr);
+    for (size_t i = 0; i < m_selected.size() && i < 10; ++i) {
+        AppendMenuW(selMenu, MF_STRING | MF_GRAYED, IDM_NONE,
+                    (L"· " + Clip(WindowManager::Title(m_selected[i]), 28)).c_str());
+    }
+    if (selN > 10)
+        AppendMenuW(selMenu, MF_STRING | MF_GRAYED, IDM_NONE, L"· …");
+    AppendMenuW(selMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(selMenu, MF_STRING | (selN ? 0 : MF_GRAYED), IDM_SEL_HIDE,
+                (L"隐藏选中的窗口\t" + tmd::DescribeBinding(m_cfg.bindHide)).c_str());
+    AppendMenuW(selMenu, MF_STRING | (selN ? 0 : MF_GRAYED), IDM_SEL_PIN,
+                (L"置顶 / 取消置顶选中窗口\t" + tmd::DescribeBinding(m_cfg.bindBatchPin)).c_str());
+    AppendMenuW(selMenu, MF_STRING | (selN ? 0 : MF_GRAYED), IDM_SEL_CLEAR, L"清空选择");
+    AppendMenuW(root, MF_POPUP, (UINT_PTR)selMenu,
+                (L"批量选择" + (selN ? tmd::Format(L" (%u)", selN) : std::wstring())).c_str());
+
+    AppendMenuW(root, MF_SEPARATOR, 0, nullptr);
+
+    // ---- 设置（大窗口，所有快捷键集中在一页里改）----
+    AppendMenuW(root, MF_STRING, IDM_SETTINGS, L"快捷键与设置…");
 
     AppendMenuW(root, MF_STRING | (m_cfg.autoStart ? MF_CHECKED : 0), IDM_AUTOSTART, L"开机自动启动");
     AppendMenuW(root, MF_STRING, IDM_REFRESH, L"刷新窗口状态");
@@ -187,7 +203,8 @@ HMENU App::BuildMenu()
 void App::EditBinding(Binding AppConfig::* field, const wchar_t* title, const wchar_t* hint)
 {
     // 先释放自己占用的键盘组合，否则"改回原组合"会被自己挡住
-    const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU, HK_UNPIN_ALL };
+    const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
 
     Binding b = m_cfg.*field;
@@ -298,19 +315,39 @@ void App::HandleCommand(UINT id)
         if (m_target && IsWindow(m_target)) ToggleTarget(m_target);
         break;
 
+    case IDM_SETTINGS:
+        OpenSettings();
+        break;
+
+    case IDM_SEL_CLEAR:
+        ClearSelection();
+        RefreshTrayTip();
+        break;
+
+    case IDM_SEL_HIDE:
+        HideCurrentOrSelected();
+        break;
+
+    case IDM_SEL_PIN:
+        BatchPinSelected();
+        break;
+
     case IDM_NEXT: StepPinned(+1); break;
     case IDM_PREV: StepPinned(-1); break;
 
     case IDM_HIDE_TARGET:
         if (m_target && IsWindow(m_target)) {
             m_wm.HideWindow(m_target);
-            Notify(NCT_PIN, L"窗口已隐藏", L"可从托盘菜单「显示全部隐藏窗口」恢复");
+            Notify(NCT_PIN, L"窗口已隐藏", L"按「显示全部隐藏窗口」的快捷键可以找回来");
+            RefreshTrayTip();
+            RefreshOverlayNow();
         }
         break;
 
     case IDM_SHOW_ALL:
         m_wm.RestoreAllHidden();
         RefreshTrayTip();
+        RefreshOverlayNow();
         break;
 
     case IDM_UNPIN_ALL:
@@ -404,13 +441,13 @@ void App::HandleCommand(UINT id)
 
     case IDM_ABOUT:
         MessageBoxW(m_hwnd,
-            L"TopMostDesk — Windows 窗口置顶助手\n\n"
-            L"· 置顶/取消：焦点放到目标窗口，按快捷键（默认 Win+Shift+T）\n"
+            L"TopMostDesk 1.5 — Windows 窗口置顶助手\n\n"
+            L"· 置顶 / 取消置顶：焦点放到目标窗口后按快捷键（默认 Win+Shift+T，被占用时自动退让）\n"
+            L"· 隐藏窗口：Ctrl+H　　显示全部隐藏窗口：Ctrl+Shift+H\n"
+            L"· 批量选择：按住 Ctrl 点窗口可连续多选；再按 Ctrl+H 或 Ctrl+鼠标右键批量隐藏 / 置顶\n"
             L"· 切换置顶窗口：默认 Win+滚轮下滚 / Win+滚轮上滚\n"
-            L"· 取消全部置顶：默认 Ctrl+Shift+鼠标右键\n"
+            L"· 快捷键与外观：托盘菜单 →「快捷键与设置…」，所有项都能自定义\n"
             L"· 快捷键支持键盘组合与鼠标键（左/右/中/侧键/滚轮方向）\n"
-            L"· 菜单内的设置项点完不会关闭，可连续调整多项\n"
-            L"· 边框颜色、选中颜色、粗细：托盘菜单 →「置顶标记外观」\n"
             L"· 配置与布局：%APPDATA%\\TopMostDesk\\config.ini\n",
             L"关于 TopMostDesk", MB_OK | MB_ICONINFORMATION);
         break;

@@ -59,12 +59,12 @@ LRESULT CALLBACK InputHook::Proc(int code, WPARAM w, LPARAM l)
         }
 
         if (mouseKey && down) {
-            const UINT mods = LiveMods();
-            const UINT act = g_self->m_matcher(mods, mouseKey);
+            POINT pt = { ms->pt.x, ms->pt.y };
+            const UINT act = g_self->m_matcher(LiveMods(), mouseKey, pt);
             if (act) {
                 if (g_self->m_notify)
-                    PostMessageW(g_self->m_notify, WM_TMD_INPUT, (WPARAM)act, (LPARAM)mouseKey);
-                return 1;   // 命中即吞掉，避免同时触发目标窗口自身的右键菜单/滚动
+                    PostMessageW(g_self->m_notify, WM_TMD_INPUT, (WPARAM)act, 0);
+                return 1;   // 命中即吞掉，避免同时触发目标窗口自身的右键菜单/滚动/选中
             }
         }
     }

@@ -92,12 +92,17 @@ bool LoadConfig(AppConfig& cfg)
     LoadBinding(f, L"prev",   cfg.bindPrev);
     LoadBinding(f, L"menu",   cfg.bindMenu);
     LoadBinding(f, L"unpinall", cfg.bindUnpinAll);
+    LoadBinding(f, L"hide",     cfg.bindHide);
+    LoadBinding(f, L"showall",  cfg.bindShowAll);
+    LoadBinding(f, L"select",   cfg.bindSelect);
+    LoadBinding(f, L"batchpin", cfg.bindBatchPin);
 
     const std::wstring G = L"general";
     cfg.autoStart       = ReadUInt(G, L"autoStart",       cfg.autoStart ? 1 : 0, f) != 0;
     cfg.showMarker      = ReadUInt(G, L"showMarker",      cfg.showMarker ? 1 : 0, f) != 0;
     cfg.markerColor     = ReadUInt(G, L"markerColor",     (UINT)cfg.markerColor, f);
     cfg.markerActive    = ReadUInt(G, L"markerActive",    (UINT)cfg.markerActive, f);
+    cfg.markerSelect    = ReadUInt(G, L"markerSelect",    (UINT)cfg.markerSelect, f);
     cfg.markerThickness = (int)ReadUInt(G, L"markerThickness", (UINT)cfg.markerThickness, f);
     cfg.defaultAlpha    = (BYTE)ReadUInt(G, L"defaultAlpha", cfg.defaultAlpha, f);
 
@@ -123,11 +128,16 @@ bool SaveConfig(const AppConfig& cfg)
     SaveBinding(f, L"prev",   cfg.bindPrev);
     SaveBinding(f, L"menu",   cfg.bindMenu);
     SaveBinding(f, L"unpinall", cfg.bindUnpinAll);
+    SaveBinding(f, L"hide",     cfg.bindHide);
+    SaveBinding(f, L"showall",  cfg.bindShowAll);
+    SaveBinding(f, L"select",   cfg.bindSelect);
+    SaveBinding(f, L"batchpin", cfg.bindBatchPin);
 
     WriteUInt(L"general", L"autoStart",       cfg.autoStart ? 1 : 0, f);
     WriteUInt(L"general", L"showMarker",      cfg.showMarker ? 1 : 0, f);
     WriteUInt(L"general", L"markerColor",     (UINT)cfg.markerColor, f);
     WriteUInt(L"general", L"markerActive",    (UINT)cfg.markerActive, f);
+    WriteUInt(L"general", L"markerSelect",    (UINT)cfg.markerSelect, f);
     WriteUInt(L"general", L"markerThickness", (UINT)cfg.markerThickness, f);
     WriteUInt(L"general", L"defaultAlpha",    cfg.defaultAlpha, f);
 

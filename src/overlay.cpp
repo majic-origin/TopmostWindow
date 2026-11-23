@@ -29,10 +29,11 @@ void Overlay::Destroy()
     if (m_hwnd) { DestroyWindow(m_hwnd); m_hwnd = nullptr; }
 }
 
-void Overlay::SetStyle(COLORREF color, COLORREF activeColor, int thickness)
+void Overlay::SetStyle(COLORREF color, COLORREF activeColor, COLORREF selectColor, int thickness)
 {
     m_color  = color;
     m_active = activeColor;
+    m_select = selectColor;
     m_thick  = (thickness < 1) ? 1 : thickness;
 }
 
@@ -103,11 +104,12 @@ void Overlay::Present()
     ReleaseDC(nullptr, screen);
 }
 
-void Overlay::Refresh(const std::vector<HWND>& pins, HWND active)
+void Overlay::Refresh(const std::vector<HWND>& pins, HWND active,
+                      const std::vector<HWND>& selected)
 {
     if (!m_hwnd) return;
 
-    if (pins.empty()) {
+    if (pins.empty() && selected.empty()) {
         if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
         return;
     }
@@ -129,36 +131,46 @@ void Overlay::Refresh(const std::vector<HWND>& pins, HWND active)
 
     memset(m_bits, 0, (size_t)m_w * m_h * sizeof(DWORD));
 
-    bool any = false;
-    for (HWND h : pins) {
-        if (!IsWindow(h) || !IsWindowVisible(h)) continue;
+    const int base = (m_thick < 1) ? 1 : (m_thick > 10 ? 10 : m_thick);
+
+    auto drawOne = [&](HWND h, COLORREF c, int t, bool inner) -> bool {
+        if (!IsWindow(h) || !IsWindowVisible(h)) return false;
+        if (IsIconic(h)) return false;
         RECT rc;
-        if (!WindowManager::GetFrameRect(h, rc)) continue;
-        if (IsIconic(h)) continue;
+        if (!WindowManager::GetFrameRect(h, rc)) return false;
 
         int x0 = rc.left - m_ox;
         int y0 = rc.top - m_oy;
         int x1 = rc.right - m_ox;
         int y1 = rc.bottom - m_oy;
-        // 允许超出屏幕（最大化窗口的 DWM 扩展边界会比屏幕大 8px），下方 FillRect 自动裁剪
-        if (x1 <= 0 || y1 <= 0 || x0 >= m_w || y0 >= m_h) continue;
-
-        const bool isActive = (h == active);
-        const int  base  = (m_thick < 1) ? 1 : (m_thick > 10 ? 10 : m_thick);
-        const int  t     = isActive ? base + 2 : base;
-        const COLORREF c = isActive ? m_active : m_color;
+        // 允许超出屏幕（最大化窗口的 DWM 扩展边界会比屏幕大 8px），FillRect 自动裁剪
+        if (x1 <= 0 || y1 <= 0 || x0 >= m_w || y0 >= m_h) return false;
 
         FillRect(x0, y0, x1, y0 + t, c);           // 上
         FillRect(x0, y1 - t, x1, y1, c);           // 下
         FillRect(x0, y0, x0 + t, y1, c);           // 左
         FillRect(x1 - t, y0, x1, y1, c);           // 右
 
-        if (isActive) {
-            // 选中窗口再补一圈内描边，视觉上更"实"
+        if (inner) {
+            // 当前目标 / 批量选中的窗口再补一圈内描边，视觉上更"实"
             FillRect(x0 + t + 2, y0 + t + 2, x1 - t - 2, y0 + t + 3, c);
         }
-        any = true;
+        return true;
+    };
+
+    bool any = false;
+    // 1) 普通置顶
+    for (HWND h : pins) {
+        bool isSel = std::find(selected.begin(), selected.end(), h) != selected.end();
+        if (isSel || h == active) continue;
+        if (drawOne(h, m_color, base, false)) any = true;
     }
+    // 2) 当前操作目标
+    if (active && std::find(selected.begin(), selected.end(), active) == selected.end())
+        if (drawOne(active, m_active, base + 2, true)) any = true;
+    // 3) 批量选中（最高优先级，即使未置顶也描边）
+    for (HWND h : selected)
+        if (drawOne(h, m_select, base + 2, true)) any = true;
 
     // 没有任何可画的窗口（全部最小化/不可见）时先隐藏，等下次有内容再显示
     if (!any) {

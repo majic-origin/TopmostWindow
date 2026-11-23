@@ -39,7 +39,11 @@ enum : UINT {
     IDM_NOTIFY_MUTE      = 700,
     IDM_NOTIFY_BASE      = 701,     // 701..705 分类开关
     IDM_NOTIFY_ALL_ON    = 710,
-    IDM_NOTIFY_ALL_OFF   = 711
+    IDM_NOTIFY_ALL_OFF   = 711,
+    IDM_SETTINGS         = 720,     // 打开大窗口设置面板
+    IDM_SEL_CLEAR        = 730,     // 清空批量选择
+    IDM_SEL_HIDE         = 731,     // 隐藏全部选中
+    IDM_SEL_PIN          = 732      // 批量置顶 / 取消
 };
 
 // 通知分类
@@ -77,6 +81,15 @@ private:
     void  UnpinAll();               // 取消全部置顶
     void  SetTarget(HWND h);
     void  ActivateWindow(HWND h);
+
+    // ---- 批量选择 ----
+    void  SelectUnderCursor(POINT pt);   // 命中/取消选择光标下的窗口
+    void  ClearSelection();
+    void  HideCurrentOrSelected();       // Ctrl+H
+    void  BatchPinSelected();            // Ctrl+右键
+    void  PruneSelection();
+
+    void  OpenSettings();                // 大窗口设置面板
     void  ReRegisterHotkeys();
     void  ReRegisterToggleForCapture();
     void  RefreshOverlayNow();
@@ -99,9 +112,12 @@ private:
     InputHook     m_input;
 
     HWND  m_target = nullptr;    // 当前操作目标（也是"选中"的置顶窗口）
+    std::vector<HWND> m_selected;   // 批量选择集（Ctrl+左键点窗口加入）
+    POINT m_lastMouse = { 0, 0 };   // 鼠标钩子最近一次的屏幕坐标
     UINT  m_ticks  = 0;
     UINT  m_msgTaskbarCreated = 0;
     bool  m_testDialog = false;
     int   m_testMode = 0;
     bool  m_toggleHotkeyOk = false;
+    bool  m_modal = false;      // 设置窗口打开期间屏蔽鼠标热键
 };

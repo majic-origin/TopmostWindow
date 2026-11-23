@@ -29,6 +29,10 @@
 #define HK_PREV       3
 #define HK_MENU       4
 #define HK_UNPIN_ALL  5
+#define HK_HIDE       6
+#define HK_SHOW_ALL   7
+#define HK_SELECT     8   // Ctrl+左键：把光标下的窗口加入/移出批量选择
+#define HK_BATCH_PIN  9   // Ctrl+右键：批量置顶 / 取消置顶
 
 // 鼠标键的伪键值（与键盘 VK 共用同一字段，靠 device 区分）
 #define TMD_MOUSE_LEFT       1

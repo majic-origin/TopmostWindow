@@ -1,4 +1,5 @@
 #include "tray.h"
+#include "toast.h"
 
 bool TrayIcon::Create(HWND owner, HICON icon, const std::wstring& tip)
 {
@@ -31,6 +32,7 @@ bool TrayIcon::Recreate(HWND owner, HICON icon, const std::wstring& tip)
 
 void TrayIcon::Destroy()
 {
+    toast::Destroy();
     if (m_ok) {
         Shell_NotifyIconW(NIM_DELETE, &m_nid);
         m_ok = false;
@@ -49,13 +51,9 @@ void TrayIcon::SetTip(const std::wstring& tip)
 
 void TrayIcon::Balloon(const std::wstring& title, const std::wstring& text, DWORD flags)
 {
-    if (!m_ok) return;
-    m_nid.uFlags     = NIF_INFO;
-    m_nid.dwInfoFlags = flags;
-    wcsncpy_s(m_nid.szInfoTitle, title.c_str(), _TRUNCATE);
-    wcsncpy_s(m_nid.szInfo, text.c_str(), _TRUNCATE);
-    Shell_NotifyIconW(NIM_MODIFY, &m_nid);
-    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    // 不再用 Shell_NotifyIcon 的 NIF_INFO 气泡：它按队列逐个弹，连点几次就要关几次，
+    // 而且关不掉的会堆进通知中心。改成自绘单实例弹窗，新内容原地覆盖。
+    toast::Show(title, title, text, flags);
 }
 
 HICON CreateTrayIconFromScratch(int size)

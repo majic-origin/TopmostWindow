@@ -1,5 +1,6 @@
 #include "app.h"
 #include "dialogs.h"
+#include "settings.h"
 #include "ui_theme.h"
 #include "resource.h"
 #include <vector>
@@ -58,17 +59,24 @@ bool App::Init()
     m_overlay.Create(m_inst);
     ApplyMarkerConfig();
 
-    // 鼠标键（右键/侧键/滚轮）靠全局低级鼠标钩子；键盘走 RegisterHotKey
-    m_input.SetMatcher([this](UINT mods, UINT mouseKey) -> UINT {
+    // 鼠标键（右键/侧键/滚轮/批量选择）靠全局低级鼠标钩子；键盘走 RegisterHotKey
+    m_input.SetMatcher([this](UINT mods, UINT mouseKey, POINT pt) -> UINT {
+        if (m_modal) return 0;      // 设置窗口打开时不要抢鼠标
+        m_lastMouse = pt;
         auto hit = [&](const Binding& b, UINT id) -> UINT {
             if (b.device != TMD_DEV_MOUSE || b.key == 0) return 0;
             return (b.key == mouseKey && b.mods == mods) ? id : 0;
         };
-        if (UINT r = hit(m_cfg.bindToggle, HK_TOGGLE)) return r;
-        if (UINT r = hit(m_cfg.bindNext,   HK_NEXT))   return r;
-        if (UINT r = hit(m_cfg.bindPrev,   HK_PREV))   return r;
-        if (UINT r = hit(m_cfg.bindMenu,   HK_MENU))   return r;
+        // 批量选择优先：Ctrl+左键在任何窗口上都先当作"选择"
+        if (UINT r = hit(m_cfg.bindSelect,   HK_SELECT))    return r;
+        if (UINT r = hit(m_cfg.bindBatchPin, HK_BATCH_PIN)) return r;
+        if (UINT r = hit(m_cfg.bindToggle,   HK_TOGGLE))    return r;
+        if (UINT r = hit(m_cfg.bindNext,     HK_NEXT))      return r;
+        if (UINT r = hit(m_cfg.bindPrev,     HK_PREV))      return r;
+        if (UINT r = hit(m_cfg.bindMenu,     HK_MENU))      return r;
         if (UINT r = hit(m_cfg.bindUnpinAll, HK_UNPIN_ALL)) return r;
+        if (UINT r = hit(m_cfg.bindHide,     HK_HIDE))      return r;
+        if (UINT r = hit(m_cfg.bindShowAll,  HK_SHOW_ALL))  return r;
         return 0;
     });
     m_input.Install(m_hwnd);
@@ -84,6 +92,7 @@ bool App::Init()
     if (m_testMode == 2) PostMessageW(m_hwnd, WM_APP + 41, 0, 0);
     if (m_testMode == 3) PostMessageW(m_hwnd, WM_APP + 42, 0, 0);
     if (m_testMode == 4) PostMessageW(m_hwnd, WM_APP + 43, 0, 0);
+    if (m_testMode == 5) PostMessageW(m_hwnd, WM_APP + 46, 0, 0);
     return true;
 }
 
@@ -193,6 +202,10 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
         return 0;
     }
 
+    case WM_APP + 46:            // 调试：打开设置大窗口
+        OpenSettings();
+        return 0;
+
     default:
         break;
     }
@@ -217,12 +230,137 @@ void App::OnAction(UINT id)
     case HK_NEXT: StepPinned(+1); break;
     case HK_PREV: StepPinned(-1); break;
     case HK_UNPIN_ALL: UnpinAll(); break;
+    case HK_HIDE:     HideCurrentOrSelected(); break;
+    case HK_SHOW_ALL: {
+        int n = m_wm.HiddenCount();
+        m_wm.RestoreAllHidden();
+        Notify(NCT_PIN, L"已恢复隐藏窗口", tmd::Format(L"共 %d 个窗口", n));
+        RefreshTrayTip();
+        RefreshOverlayNow();
+        break;
+    }
+    case HK_SELECT:   SelectUnderCursor(m_lastMouse); break;
+    case HK_BATCH_PIN: BatchPinSelected(); break;
     case HK_MENU:
         m_target = GetForegroundWindow();
         ShowContextMenu();
         break;
     default: break;
     }
+}
+
+// ---------------- 批量选择 ----------------
+
+void App::PruneSelection()
+{
+    for (size_t i = 0; i < m_selected.size();) {
+        if (!IsWindow(m_selected[i])) m_selected.erase(m_selected.begin() + (long)i);
+        else ++i;
+    }
+}
+
+void App::SelectUnderCursor(POINT pt)
+{
+    HWND h = WindowFromPoint(pt);
+    if (!h) return;
+    HWND root = GetAncestor(h, GA_ROOT);
+    if (root) h = root;
+    if (WindowManager::OwnWindow(h)) return;
+    if (!IsWindowVisible(h)) return;
+
+    PruneSelection();
+    auto it = std::find(m_selected.begin(), m_selected.end(), h);
+    if (it != m_selected.end()) {
+        m_selected.erase(it);
+        Notify(NCT_PIN, L"已移出选择", WindowManager::Title(h));
+    } else {
+        m_selected.push_back(h);
+        Notify(NCT_PIN, tmd::Format(L"已选中 %u 个窗口", (unsigned)m_selected.size()),
+               WindowManager::Title(h) + L"  [" + WindowManager::ExeName(h) + L"]");
+    }
+    m_target = h;
+    RefreshTrayTip();
+    RefreshOverlayNow();
+}
+
+void App::ClearSelection()
+{
+    if (m_selected.empty()) return;
+    m_selected.clear();
+    RefreshOverlayNow();
+}
+
+void App::HideCurrentOrSelected()
+{
+    PruneSelection();
+    if (!m_selected.empty()) {
+        const size_t n = m_selected.size();
+        for (HWND h : m_selected) m_wm.HideWindow(h);
+        m_selected.clear();
+        Notify(NCT_PIN, L"已隐藏选中的窗口", tmd::Format(L"共 %u 个", (unsigned)n));
+    } else {
+        HWND fg = GetForegroundWindow();
+        if (!fg || WindowManager::OwnWindow(fg)) fg = m_target;
+        if (!fg || !IsWindow(fg)) return;
+        m_wm.HideWindow(fg);
+        Notify(NCT_PIN, L"窗口已隐藏", L"用「显示全部隐藏窗口」快捷键可以找回来");
+    }
+    RefreshTrayTip();
+    RefreshOverlayNow();
+}
+
+void App::BatchPinSelected()
+{
+    PruneSelection();
+    std::vector<HWND> targets = m_selected;
+    if (targets.empty()) {
+        HWND fg = GetForegroundWindow();
+        if (!fg || WindowManager::OwnWindow(fg)) fg = m_target;
+        if (!fg || !IsWindow(fg)) return;
+        targets.push_back(fg);
+    }
+
+    // 只要有一个还没置顶 → 全部置顶；否则全部取消
+    bool anyUnpinned = false;
+    for (HWND h : targets)
+        if (!WindowManager::IsTopMost(h)) { anyUnpinned = true; break; }
+
+    for (HWND h : targets) {
+        m_wm.Pin(h, anyUnpinned);
+        if (!anyUnpinned && m_wm.GetAlpha(h) < 255) m_wm.SetAlpha(h, 255);
+    }
+    m_target = targets.front();
+
+    Notify(NCT_PIN,
+           anyUnpinned ? L"已置顶选中的窗口" : L"已取消选中窗口的置顶",
+           tmd::Format(L"共 %u 个", (unsigned)targets.size()));
+
+    if (!m_selected.empty()) m_selected.clear();
+    RefreshTrayTip();
+    RefreshOverlayNow();
+}
+
+void App::OpenSettings()
+{
+    // 先释放自己占用的热键，否则"改回原组合"会被自己挡住，占用校验也不准
+    const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL };
+    for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
+    m_toggleHotkeyOk = false;
+
+    AppConfig next = m_cfg;
+    m_modal = true;
+    const bool saved = ShowSettingsWindow(m_hwnd, &next);
+    m_modal = false;
+
+    if (saved) {
+        m_cfg = next;
+        SaveCfg();
+        ApplyMarkerConfig();
+        RefreshOverlayNow();
+    }
+    ReRegisterHotkeys();
+    RefreshTrayTip();
 }
 
 void App::StepPinned(int dir)
@@ -387,13 +525,17 @@ void App::ShowContextMenu()
 
 void App::RefreshOverlayNow()
 {
-    if (!m_cfg.showMarker) return;
-    m_overlay.Refresh(m_wm.List(), m_target);
+    if (!m_cfg.showMarker) {
+        m_overlay.Refresh({}, nullptr, {});
+        return;
+    }
+    m_overlay.Refresh(m_wm.List(), m_target, m_selected);
 }
 
 void App::ApplyMarkerConfig()
 {
-    m_overlay.SetStyle(m_cfg.markerColor, m_cfg.markerActive, m_cfg.markerThickness);
+    m_overlay.SetStyle(m_cfg.markerColor, m_cfg.markerActive,
+                       m_cfg.markerSelect, m_cfg.markerThickness);
 }
 
 void App::RefreshTrayTip()
@@ -408,7 +550,8 @@ void App::RefreshTrayTip()
 
 void App::ReRegisterHotkeys()
 {
-    const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU, HK_UNPIN_ALL };
+    const UINT ids[] = { HK_TOGGLE, HK_NEXT, HK_PREV, HK_MENU,
+                         HK_UNPIN_ALL, HK_HIDE, HK_SHOW_ALL };
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
 
     auto reg = [&](UINT id, const Binding& b) -> BOOL {
@@ -452,6 +595,8 @@ void App::ReRegisterHotkeys()
     reg(HK_PREV, m_cfg.bindPrev);
     reg(HK_MENU, m_cfg.bindMenu);
     reg(HK_UNPIN_ALL, m_cfg.bindUnpinAll);
+    reg(HK_HIDE,     m_cfg.bindHide);
+    reg(HK_SHOW_ALL, m_cfg.bindShowAll);
 }
 
 void App::ReRegisterToggleForCapture()

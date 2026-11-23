@@ -27,11 +27,18 @@ struct AppConfig
     Binding bindMenu   { TMD_DEV_KEYBOARD, MOD_WIN | MOD_SHIFT, 'M' };
     // 取消全部置顶：默认 Ctrl+Shift+鼠标右键
     Binding bindUnpinAll { TMD_DEV_MOUSE, MOD_CONTROL | MOD_SHIFT, TMD_MOUSE_RIGHT };
+    // 隐藏当前窗口 / 显示全部隐藏窗口
+    Binding bindHide    { TMD_DEV_KEYBOARD, MOD_CONTROL, 'H' };
+    Binding bindShowAll { TMD_DEV_KEYBOARD, MOD_CONTROL | MOD_SHIFT, 'H' };
+    // 批量选择（把光标下的窗口加入选择集）与批量置顶
+    Binding bindSelect  { TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_LEFT };
+    Binding bindBatchPin{ TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_RIGHT };
 
     bool     autoStart       = false;                 // 开机自启
     bool     showMarker      = true;                  // 置顶窗口视觉标记
     COLORREF markerColor     = RGB(255, 110, 20);      // 普通置顶窗口的边框颜色
     COLORREF markerActive    = RGB(27, 111, 224);      // 当前选中窗口的边框颜色
+    COLORREF markerSelect    = RGB(22, 163, 74);       // 批量选中窗口的边框颜色
     int      markerThickness = 2;                     // 边框粗细（像素）
     BYTE     defaultAlpha    = 210;
 
