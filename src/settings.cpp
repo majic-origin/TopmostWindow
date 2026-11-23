@@ -742,10 +742,15 @@ LRESULT CALLBACK LLMouse(int code, WPARAM w, LPARAM l)
         return CallNextHookEx(g_ms, code, w, l);
     }
 
-    // 其余按键：落在设置窗口内的点击要交给窗口自己处理（点输入框、点按钮）
+    // 录制时区分「点窗口 UI」和「录鼠标组合键」：
+    //   · 带修饰键的点击 → 一定是想录组合键（点按钮/输入框不会按 Ctrl/Alt/Shift/Win），吞掉录入；
+    //     之前这里一律按落点放行，导致"按住 Ctrl 点右键"在窗口内被窗口吃掉，鼠标键永远录不到。
+    //   · 裸点击落在窗口内 → 交给窗口自己处理（切输入框、点按钮、点关闭）；
+    //   · 裸点击落在窗口外 → 没有 UI 会收到，直接录入（支持裸右键/中键/侧键）。
+    // 注：点输入框"开始录制"的那一下发生在 recRow 还是 -1 时，第一行就放行了，不受此处影响。
     RECT wr = {};
     if (s.hwnd) GetWindowRect(s.hwnd, &wr);
-    if (InRect(wr, pt)) return CallNextHookEx(g_ms, code, w, l);
+    if (mods == 0 && InRect(wr, pt)) return CallNextHookEx(g_ms, code, w, l);
 
     switch (w) {
     case WM_LBUTTONDOWN: OnMouseDown(TMD_MOUSE_LEFT, pt, mods);   return 1;
