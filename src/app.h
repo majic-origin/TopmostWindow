@@ -122,6 +122,8 @@ private:
     HWND          m_hwnd = nullptr;
     HICON         m_icon = nullptr;
     HWINEVENTHOOK m_fgHook = nullptr;   // EVENT_SYSTEM_FOREGROUND 监听
+    HWINEVENTHOOK m_locHook = nullptr;  // EVENT_OBJECT_LOCATIONCHANGE：窗口移动/缩放时立刻重描边
+    bool          m_locDirty = false;   // 已有一条待处理的位置消息，合并掉后续重复投递
     static App*   s_self;               // 静态回调回到实例的入口
     AppConfig     m_cfg;
     WindowManager m_wm;

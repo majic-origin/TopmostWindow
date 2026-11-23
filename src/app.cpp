@@ -12,6 +12,7 @@ App* App::s_self = nullptr;
 
 // 前台窗口切换消息（由 WinEventProc 投递到消息循环，避免在系统回调里直接重绘）
 static const UINT WM_TMD_FOREGROUND = WM_APP + 50;
+static const UINT WM_TMD_LOCATION   = WM_APP + 51;   // 被管理窗口位置变化，需要重描边
 
 App::App(HINSTANCE inst, int testMode) : m_inst(inst), m_testMode(testMode)
 {
@@ -22,6 +23,7 @@ App::~App()
 {
     m_input.Uninstall();
     if (m_fgHook) { UnhookWinEvent(m_fgHook); m_fgHook = nullptr; }
+    if (m_locHook) { UnhookWinEvent(m_locHook); m_locHook = nullptr; }
     if (s_self == this) s_self = nullptr;
     if (m_hwnd) DestroyWindow(m_hwnd);
     m_overlay.Destroy();
@@ -73,6 +75,11 @@ bool App::Init()
     s_self = this;
     m_fgHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
                                nullptr, &App::WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
+
+    // 拖动/缩放时边框要贴住窗口，不能干等 200ms 的定时器：
+    // 监听位置变化，回调里只投递消息（和前台监听同一套"轻回调、重活在主线程"的写法）。
+    m_locHook = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE,
+                                nullptr, &App::WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT);
 
     // 鼠标键（右键/侧键/滚轮/批量选择）靠全局低级鼠标钩子；键盘走 RegisterHotKey
     m_input.SetMatcher([this](UINT mods, UINT mouseKey, POINT pt) -> UINT {
@@ -128,11 +135,23 @@ int App::Run()
 void CALLBACK App::WinEventProc(HWINEVENTHOOK, DWORD evt, HWND hwnd,
                                 LONG idObject, LONG idChild, DWORD, DWORD)
 {
-    if (evt != EVENT_SYSTEM_FOREGROUND) return;
     if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) return;
 
     App* self = s_self;
     if (!self || !self->m_hwnd || !hwnd) return;
+
+    if (evt == EVENT_OBJECT_LOCATIONCHANGE) {
+        // 这个事件量很大：只关心自己画着边框的窗口，且一次只留一条待处理消息。
+        if (self->m_locDirty) return;
+        const bool tracked = self->m_wm.IsPinned(hwnd) || hwnd == self->m_target ||
+            std::find(self->m_selected.begin(), self->m_selected.end(), hwnd) != self->m_selected.end();
+        if (!tracked) return;
+        self->m_locDirty = true;
+        PostMessageW(self->m_hwnd, WM_TMD_LOCATION, 0, 0);
+        return;
+    }
+
+    if (evt != EVENT_SYSTEM_FOREGROUND) return;
     // 回调里只投递消息：WinEvent 回调期间不能重入 UpdateLayeredWindow / SetWindowPos
     PostMessageW(self->m_hwnd, WM_TMD_FOREGROUND, (WPARAM)hwnd, 0);
 }
@@ -187,6 +206,11 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
     case WM_TMD_FOREGROUND:
         if ((HWND)w == GetForegroundWindow() && SyncForegroundTarget())
             RefreshOverlayNow();
+        return 0;
+
+    case WM_TMD_LOCATION:
+        m_locDirty = false;
+        RefreshOverlayNow();   // Overlay 内部会比较帧签名，没变化就不重绘
         return 0;
 
     case WM_DESTROY:

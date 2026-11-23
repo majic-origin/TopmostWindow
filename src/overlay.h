@@ -33,4 +33,7 @@ private:
     COLORREF  m_select    = RGB(22, 163, 74);
     int       m_thick     = 2;
     bool      m_shown     = false;
+    // 上一帧的内容签名（窗口集合 + 各自矩形 + 配色/粗细 + 屏幕几何）。
+    // 位置没变就跳过清零与 UpdateLayeredWindow，事件驱动刷新的开销因此只在真正移动时发生。
+    unsigned long long m_sig = 0;
 };

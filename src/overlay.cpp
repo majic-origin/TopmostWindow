@@ -124,6 +124,7 @@ void Overlay::Refresh(const std::vector<HWND>& pins, HWND active,
 
     if (pins.empty() && selected.empty()) {
         if (m_shown) { ShowWindow(m_hwnd, SW_HIDE); m_shown = false; }
+        m_sig = 0;
         return;
     }
 
@@ -131,6 +132,33 @@ void Overlay::Refresh(const std::vector<HWND>& pins, HWND active,
     const int vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
     const int vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     const int vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+    // ---- 先取一次所有目标矩形并算帧签名；与上一帧一致就整帧跳过 ----
+    // FNV-1a：窗口句柄、可见性、矩形、配色、粗细、屏幕几何全部参与
+    unsigned long long sig = 1469598103934665603ull;
+    auto mix = [&sig](unsigned long long v) { sig ^= v; sig *= 1099511628211ull; };
+    mix((unsigned)vx); mix((unsigned)vy); mix((unsigned)vw); mix((unsigned)vh);
+    mix(m_color); mix(m_active); mix(m_select); mix((unsigned)m_thick);
+
+    std::map<HWND, RECT> rects;
+    auto consider = [&](HWND h) {
+        if (!h) { mix(0); return; }
+        mix((unsigned long long)(uintptr_t)h);
+        RECT rc = {};
+        const bool ok = IsWindow(h) && IsWindowVisible(h) && !IsIconic(h)
+                        && WindowManager::GetFrameRect(h, rc);
+        mix(ok ? 1ull : 0ull);
+        if (ok) {
+            rects[h] = rc;
+            mix((unsigned)rc.left); mix((unsigned)rc.top);
+            mix((unsigned)rc.right); mix((unsigned)rc.bottom);
+        }
+    };
+    for (HWND h : pins) consider(h);
+    consider(active);
+    for (HWND h : selected) consider(h);
+
+    if (sig == m_sig) return;   // 位置/集合/样式都没变：不清屏、不提交
 
     const bool geomChanged = (vw != m_w || vh != m_h || vx != m_ox || vy != m_oy);
     if (geomChanged) {
@@ -140,17 +168,17 @@ void Overlay::Refresh(const std::vector<HWND>& pins, HWND active,
         SetWindowPos(m_hwnd, HWND_TOPMOST, vx, vy, vw, vh,
                      SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
-    if (!m_bits) return;
+    if (!m_bits) { m_sig = 0; return; }   // 缓冲区没就绪，下帧按新签名重算
+    m_sig = sig;
 
     memset(m_bits, 0, (size_t)m_w * m_h * sizeof(DWORD));
 
     const int base = (m_thick < 1) ? 1 : (m_thick > 10 ? 10 : m_thick);
 
     auto drawOne = [&](HWND h, COLORREF c, int t, bool inner) -> bool {
-        if (!IsWindow(h) || !IsWindowVisible(h)) return false;
-        if (IsIconic(h)) return false;
-        RECT rc;
-        if (!WindowManager::GetFrameRect(h, rc)) return false;
+        auto it = rects.find(h);
+        if (it == rects.end()) return false;   // 不可见/最小化/取矩形失败（上面已判定）
+        const RECT& rc = it->second;
 
         int x0 = rc.left - m_ox;
         int y0 = rc.top - m_oy;

@@ -215,7 +215,9 @@ tools/make-icon.ps1  PNG → ICO 生成脚本
 
 **选中色跟着鼠标走**：`m_target` 原来只由快捷键 / 菜单 / 滚轮 / 列表点击赋值，用鼠标点一下置顶窗口时系统只是换了前台窗口，没有任何消息通知本程序，描边就停在旧窗口上——表现正是"选中了但不换色"。修法是 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND, ..., WINEVENT_OUTOFCONTEXT)`：回调里**只** `PostMessage` 到主窗口（WinEvent 回调期间不能重入 `UpdateLayeredWindow`），主窗口收到后再比对 `GetForegroundWindow()` 与登记表，命中规则有三条——本进程窗口不算、已在批量选择集里不算（那是绿框）、没有置顶的窗口不算。200ms 的标记定时器里再调一次同一个 `SyncForegroundTarget()` 兜底，钩子失效时最多慢一拍。`RefreshOverlayNow()` 另外加了道闸：目标窗口已被取消置顶就不再传 `active`，否则取消置顶后那条"选中色"描边会一直挂在窗口上。
 
-**视觉标记**：不注入目标进程。创建一个覆盖整个虚拟屏幕的 `WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 弹出窗口，`CreateDIBSection` 建 32bpp 后备缓冲，直接按行写像素画四边条，再 `UpdateLayeredWindow(..., ULW_ALPHA)` 提交。200ms 重绘一次，窗口矩形用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 取真实可视边界（`GetWindowRect` 会多算 8px 不可见边框）。每帧末尾用 `SetWindowPos(HWND_TOPMOST, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)` 重新提到最前——否则其它 topmost 窗口被激活后会盖住描边。
+**视觉标记**：不注入目标进程。创建一个覆盖整个虚拟屏幕的 `WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 弹出窗口，`CreateDIBSection` 建 32bpp 后备缓冲，直接按行写像素画四边条，再 `UpdateLayeredWindow(..., ULW_ALPHA)` 提交。窗口矩形用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 取真实可视边界（`GetWindowRect` 会多算 8px 不可见边框）。每帧末尾用 `SetWindowPos(HWND_TOPMOST, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)` 重新提到最前——否则其它 topmost 窗口被激活后会盖住描边。
+
+**拖动跟随（v1.6.4）**：早期版本只靠 200ms 定时器轮询位置，拖动窗口时边框最多滞后 200ms，看着像"贴不上"。现在两条配合：`SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, ..., WINEVENT_OUTOFCONTEXT)` 监听移动/缩放，回调里先过滤（只关心置顶/目标/选中集里的窗口）再用 `m_locDirty` 合并成一条 `WM_TMD_LOCATION` 投给主线程，主线程立即重描边，200ms 定时器降级为兜底。同时 `Overlay::Refresh()` 开头先取一次所有目标矩形算 FNV-1a 帧签名（窗口集合 + 矩形 + 可见性 + 配色/粗细 + 屏幕几何），与上一帧相同就整帧跳过——不清屏、不 `UpdateLayeredWindow`，所以事件驱动的高频刷新只在真正移动时产生开销，静止时几乎零成本。
 
 **显隐状态**：覆盖层在"没有可画窗口"时会 `ShowWindow(SW_HIDE)`。这是分层窗口的坑——`UpdateLayeredWindow` 只更新内容、不会把隐藏的窗口显示出来，所以恢复画之前必须显式 `ShowWindow(SW_SHOWNOACTIVATE)`，否则隐藏过一次就再也画不出来（v2 的"全部丢边框"就是这个）。
 
