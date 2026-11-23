@@ -1,273 +1,293 @@
-# TopMostDesk — Windows 窗口置顶助手
+# TopMostDesk
 
-纯 Win32 / C++17 实现，无第三方依赖，单个 exe（静态链接 CRT）。常驻系统托盘，按全局快捷键把任意窗口置顶 / 取消置顶，并提供置顶列表、透明度、隐藏、分组布局、描边标记等管理能力。
+> Windows 窗口置顶助手 —— 一个 exe、一个托盘图标，把任意窗口钉在最前面。
 
-## 编译
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D6?logo=windows)
+![System](https://img.shields.io/badge/Min-Windows%2010%201809%2B-5C2D91)
+![Stars](https://img.shields.io/github/stars/majic-origin/TopmostWindow?style=social)
 
-需要 Visual Studio 2019/2022（MSVC，含 `rc.exe`）或任意支持 Win32 的 C++17 编译器。
+## 📖 项目简介
+
+大白话讲：你在看网课、抄文档、对表格、盯行情的时候，是不是总要拿鼠标把那个窗口从别的窗口底下拽出来？TopMostDesk 就干这一件事——按下快捷键，当前窗口被"钉"在最上层，点别的窗口、刷网页、开资源管理器都不会再盖住它。再按一次，取消。
+
+给谁用：需要一边看一边动手的人（写代码查文档、录课、剪视频对时间轴、盯盘、填表核对），以及习惯同时开十几个窗口来回切的人。
+
+解决什么痛点：
+
+- 系统自带的置顶要右键标题栏、一个窗口一个窗口点；这里一个快捷键搞定，还能一次批量。
+- 普通置顶工具不告诉你"现在到底哪几个窗口置顶了"；这里给每个置顶窗口画一圈描边，颜色可改，还能一眼看出当前选中了谁。
+- 想要"开机就在、不占任务栏、不刷屏"；这里常驻托盘、单个 exe、零依赖，弹窗按分类开关。
+
+一个可执行文件，纯 Win32 / C++17 手写，静态链接 CRT，拷到任何 Win10/11 机器上双击就跑。
+
+## 🖥️ 功能特性
+
+- **一键置顶 / 取消置顶**：`Win+Shift+T`（可改），作用在鼠标焦点所在窗口；托盘图标左键单击也能切。
+- **置顶窗口之间轮转**：默认 `Win+滚轮下 / 上`，像切歌一样在置顶窗口里循环，自动把焦点交过去。
+- **⭐ 描边标记，不注入目标进程**：置顶窗口四边画一圈细边（1~10px 可调），三套配色区分"普通置顶 / 当前选中 / 批量选中"。整块标记是一个逐像素 alpha 的分层窗口，靠 `UpdateLayeredWindow` 提交，不改目标窗口一个字节。
+- **⭐ 选中色跟随前台**：用鼠标点一下某个置顶窗口，描边立刻换成"选中色"（不用去菜单里点）。靠 `EVENT_SYSTEM_FOREGROUND` 事件 + 200ms 兜底，钩子失效也不会卡住。
+- **⭐ 批量选择 + 同步拖动**：按住 `Ctrl` 点几个窗口把它们圈起来，随后拖任意一个，其余按相同位移一起走——多显示器摆窗口不用一个个挪。
+- **批量动作**：`Ctrl+H` 隐藏全部选中、`Ctrl+右键` 批量置顶 / 取消、`Ctrl+Shift+A` 全选 / 取消全选。
+- **隐藏窗口与找回**：`Ctrl+H` 藏起当前窗口，`Ctrl+Shift+H` 一次性找回所有被藏起来的。
+- **透明度**：菜单里 100%~20% 九档，调节时自动置顶方便观察，取消置顶时自动恢复不透明。
+- **分组布局**：把当前一堆窗口的位置 / 置顶 / 透明度存成一套"布局"，下次一键复位（按 exe + 类名 + 标题打分匹配）。
+- **弹窗提醒分类开关**：置顶提示 / 切换提示 / 透明度提示 / 布局提示 / 系统错误，加一个"全部静音"，谁嫌吵就关谁——一千个人手里有一千种形态。
+- **⭐ 设置大窗口**：900×640 一页改完所有快捷键（点一下就开始录制，键盘和鼠标键都认）、三套配色、粗细、弹窗开关、行为开关；保存前会校验重复组合与系统占用，冲突直接红字点名。
+- **托盘常驻 + 开机自启**：写 `HKCU\...\Run`，不占任务栏；Explorer 崩了重启会自动把图标挂回去。
+- **零依赖单文件**：静态链接 CRT，不需要 .NET / VC 运行库 / 安装程序。
+
+## 🖼️ 截图 / 演示
+
+> [此处放截图或 GIF：托盘菜单、边框标记、设置大窗口、批量同步拖动。]
+>
+> 建议补这几张，读者三秒就能看懂：
+> 1. 两个窗口叠在一起，一个带橙色描边的置顶态；
+> 2. 右键托盘图标弹出的完整菜单；
+> 3. 「快捷键与设置…」大窗口的外观页；
+> 4. 三个窗口被 `Ctrl` 圈起来后同步拖动的一张 GIF。
+
+## 🚀 快速开始（重点！小白照做）
+
+### 环境要求
+
+| 项目 | 版本 / 说明 |
+| --- | --- |
+| Visual Studio | 2022（安装时勾选「使用 C++ 的桌面开发」，自带 `cl.exe` 与 `rc.exe`） |
+| MSVC 工具集 | v143（14.4x 任意小版本） |
+| Windows SDK | 10.0.22621.0（10.0.19041 以上都可以） |
+| C++ 标准 | C++17 |
+| CMake | ≥ 3.16（用 `build.bat` 编译则完全不需要 CMake） |
+| 最低系统 | Windows 10 1809（RS5）及以上，Windows 11 全系 |
+| 目标架构 | x64 |
+
+### 步骤 1：克隆项目
+
+```bash
+git clone https://github.com/majic-origin/TopmostWindow.git
+cd TopmostWindow
+```
+
+不想装 Git：打开仓库页 → 绿色 `Code` 按钮 → `Download ZIP` → 解压到任意英文路径（中文路径也能编译，但命令行工具容易出乱码，建议避开）。
+
+### 步骤 2：打开项目
+
+三条路，任选一条：
+
+| 方式 | 操作 | 适合谁 |
+| --- | --- | --- |
+| A. VS 直接打开 | Visual Studio → `文件` → `打开` → `文件夹…` → 选中仓库根目录 | 想看代码、下断点 |
+| B. CMake | `cmake -B out -A x64` → `cmake --build out --config Release` | 习惯命令行 |
+| C. 纯批处理 | 开始菜单搜 `x64 Native Tools Command Prompt for VS 2022` → `cd` 到仓库 → `build.bat` | 只想尽快拿到 exe |
+
+用 A 或 B 时，第一次会做一次配置（CMake 生成缓存 / 解析 `CMakeLists.txt`），等它跑完再继续。用 C 则直接跳到「步骤 4」。
+
+### 步骤 3：编译（含常见报错排查）
+
+推荐一键脚本：
 
 ```bat
-:: 方式一：VS 开发者命令提示符里执行
+:: 已经开在 VS 开发者命令提示符里
 build.bat
 
-:: 方式二：不想开 VS 开发者提示符，也不想让 vcvars 碰 reg.exe —— 直接用这个
+:: 没开开发者提示符，或者机器禁用了 reg.exe（vcvars 会用到它）
 tools\build-local.bat
-
-:: 方式三：CMake
-cmake -B out -A x64
-cmake --build out --config Release
 ```
 
-`tools\build-local.bat` 自己按最新版本号拼出 MSVC 与 Windows SDK 的 `INCLUDE / LIB / PATH`，然后调 `build.bat`，只有一个 exe 的输出位置和方式一完全一样。它不调用 `vcvars64.bat`（后者会跑 `reg.exe`，在禁用注册表工具的机器上会直接失败）；脚本里也刻意不写 `if ... (` 块，因为 `C:\Program Files (x86)\...` 里的括号会被 cmd 当成块结束符。
+产物固定是 `build\TopMostDesk.exe`。最常见的 5 个失败原因：
 
-`build.bat` 先跑 `rc /fo app.res ..\src\app.rc` 生成图标与版本资源，再和源码一起链接；`build.bat` 本身必须是纯 ASCII（cmd 按 OEM 代码页读批处理，中文注释会被拆断）。
-
-产物：`build\TopMostDesk.exe`
-
-## 使用方式
-
-| 功能 | 操作 |
-| --- | --- |
-| 置顶 / 取消置顶 | 激活目标窗口，按 `Win+Shift+T`（默认，可改） |
-| 隐藏当前窗口 | 默认 `Ctrl+H`；有批量选中时隐藏全部选中 |
-| 显示全部隐藏窗口 | 默认 `Ctrl+Shift+H` |
-| 批量选择窗口 | 按住默认的 `Ctrl` 点窗口即可加入 / 移出选择集，可连续选多个（绿框标出） |
-| 全选 / 取消全选 | 默认 `Ctrl+Shift+A`：一次选中所有未最小化窗口，再按一次清空 |
-| 批量隐藏 / 批量置顶 | 选好后按 `Ctrl+H` 隐藏全部选中；按 `Ctrl+鼠标右键` 批量置顶 / 取消置顶 |
-| 同步拖动 | 开启后（菜单 →「批量选择」→「同步拖动」或设置 →「行为」），选中多个窗口拖任意一个，其余同位移跟随 |
-| 取消全部置顶 | 默认 `Ctrl+Shift+鼠标右键`（可改），或在菜单 →「置顶窗口列表」→「全部取消置顶」 |
-| 切换置顶窗口 | 默认 `Win+滚轮下滚` 下一个 / `Win+滚轮上滚` 上一个（可改成任意键鼠组合） |
-| 快速切换 | 左键单击托盘图标 = 对当前前台窗口切换置顶 |
-| 完整管理菜单 | 右键单击托盘图标，或 `Win+Shift+M` |
-| 置顶窗口列表 | 菜单 →「置顶窗口列表」，勾选当前目标；点击条目可直接切到该窗口 |
-| 透明度 | 菜单 →「窗口透明度」→ 100%~20%（调节时自动置顶，便于观察） |
-| 分组布局 | 菜单 →「分组布局」→「保存当前置顶布局…」输入名称；「恢复布局」一键复位 |
-| 边框外观 | 菜单 →「置顶标记外观」→ 置顶边框颜色 / 选中窗口边框颜色 / 批量选中边框颜色 / 边框粗细 1~10px / 显示开关 |
-| 弹窗提醒 | 菜单 →「弹窗提醒」→ 分类开关：置顶提示 / 切换提示 / 透明度提示 / 布局提示 / 系统与错误提示，另有「全部静音」「全部开启」「全部关闭」 |
-| 开机自启 | 菜单 →「开机自动启动」勾选，写入 `HKCU\...\Run` |
-| 改快捷键 | 菜单 →「**快捷键与设置…**」打开设置大窗口，一页里改完所有快捷键 |
-| 退出 | 菜单 →「退出」 |
-
-### 托盘菜单行为（点设置不关闭）
-
-菜单项分两类：
-
-- **设置项**（边框颜色、粗细、弹窗开关、开机自启、快捷键、取消全部置顶、刷新…）：点完 **菜单保持打开**，可以连着改好几项。
-- **动作项**（置顶该窗口、透明度、隐藏、列表跳转、分组恢复、关于、退出）：点完就关闭，因为下一步通常是把焦点交还给目标窗口。
-
-实现方式：`ShowContextMenu()` 里是一个 `for` 循环 —— `TrackPopupMenuEx(TPM_RETURNCMD)` 拿到命令后分发，若命中 `IsStickyCommand()` 就重新 `BuildMenu()` 再弹一次；返回 0（点空白 / Esc）或命中退出才 `break`。菜单每次重建，勾选状态、置顶计数、快捷键文案都是最新的。锚点固定在首次弹出时的鼠标位置，所以重开时菜单不跳动，看起来就是"没关过"。循环上限 128 次防止异常情况下死循环。
-
-### 鼠标键与批量选择
-
-`RegisterHotKey` 天生只认键盘，所以鼠标键走另一条通道：常驻一个 `WH_MOUSE_LL` 全局钩子，命中配置的组合时 `PostMessage` 给主窗口并吞掉这次事件（不会同时触发目标窗口的右键菜单或滚动）。
-
-- 可绑：鼠标左键 / 右键 / 中键 / 侧键1 / 侧键2 / 滚轮上滚 / 滚轮下滚。
-- 建议搭配修饰键（`Ctrl + 鼠标右键`、`Alt + 中键`）；右键/中键/侧键/滚轮也允许不带修饰键（左键除外，会抢掉全系统点击）。
-- 默认绑定：置顶 `Win+Shift+T`、隐藏 `Ctrl+H`、显示全部 `Ctrl+Shift+H`、下一个 `Win+滚轮下`、上一个 `Win+滚轮上`、取消全部置顶 `Ctrl+Shift+鼠标右键`、批量选择 `Ctrl+左键`、批量置顶 `Ctrl+右键`。
-- 注意 `Win + 鼠标键` 松手时系统仍会弹开始菜单，这是 Windows 自身行为；如果嫌碍事，改用 `Ctrl` / `Alt` 组合。
-
-**批量选择**：`bindSelect`（默认 `Ctrl+左键`）命中后，钩子吞掉这次点击，用 `WindowFromPoint` + `GetAncestor(GA_ROOT)` 取光标下的顶层窗口，把它加入 / 移出选择集，绿框标出并弹一条"已选中 N 个窗口"。选中集在 `App::m_selected` 里，动作时按下面的规则联动：
-
-| 操作 | 有选中窗口 | 没有选中窗口 |
+| 报错 | 原因 | 解决 |
 | --- | --- | --- |
-| `Ctrl+H`（`HK_HIDE`） | 隐藏全部选中，然后清空选择 | 隐藏当前前台窗口 |
-| `Ctrl+右键`（`HK_BATCH_PIN`） | 只要有一个没置顶就全部置顶，否则全部取消 | 对当前前台窗口切换置顶 |
-| `Ctrl+Shift+H`（`HK_SHOW_ALL`） | 恢复所有被本软件隐藏的窗口 | 同上 |
+| `'cl' 不是内部或外部命令` / `[ERROR] cl.exe not found` | 当前 cmd 没加载 MSVC 环境 | 换 `x64 Native Tools Command Prompt`，或直接用 `tools\build-local.bat` |
+| `'rc' 不是内部或外部命令` / `[FAILED] rc error` | 只装了 VS 没装 Windows SDK，或没加载环境 | VS Installer 里补「Windows 10/11 SDK」，再重开终端 |
+| `vcvars64.bat` 一闪就失败 / 卡在 `reg.exe` | 安全软件或组策略拦了 `reg.exe` | 用 `tools\build-local.bat`，它不调用 vcvars，自己拼 `INCLUDE/LIB/PATH` |
+| `LNK1104: 无法打开文件 TopMostDesk.exe` | 旧程序还在托盘里跑着，文件被占用 | 托盘右键 → 退出，或在任务管理器结束 `TopMostDesk.exe` 再编 |
+| `CMake Error: could not find any instance of Visual Studio` | CMake 没找到 VS 或架构参数不对 | 确认装着 VS 2022，命令补 `-A x64`；或用 `build.bat` 绕开 CMake |
 
-代价是 `Ctrl+左键` 变成了"本软件的选窗口手势"——在资源管理器里 Ctrl+点选文件也会被拦。不想用就把它改成 `Ctrl+Shift+左键` 之类更少用的组合，或在设置窗口里换一个更少用的组合。
+### 步骤 4：运行
 
-### 设置大窗口（快捷键一页改完）
+它没有主窗口——启动后**只会在托盘出现一个小图标**（右下角通知区域），这是正常的，不是没跑起来。
 
-菜单 →「快捷键与设置…」打开一块 900×640（按系统 DPI 等比放大）的独立窗口，左侧分类导航、右侧就地设置，不用一层层翻菜单：
+1. 双击 `build\TopMostDesk.exe`（仓库里也直接带了一份编好的 `build\TopMostDesk.exe`，可以先试跑）。
+2. 看托盘：出现一个圆角方块 + 向上箭头的图标。
+3. 把鼠标焦点放到任意窗口上，按 `Win+Shift+T`——窗口被置顶，四边出现橙色描边。
+4. 右键托盘图标 → 完整菜单；左键单击托盘图标 → 直接切换当前窗口置顶。
 
-| 分类 | 内容 |
-| --- | --- |
-| 快捷键 | 9 项，每行一个输入框：**点一下就开始录制**，按下的组合键直接显示在框里；右侧 ✕ 清除该项 |
-| 边框外观 | 三套配色（置顶 / 当前选中 / 批量选中）各 7 个预设色 + 系统取色器，边框粗细 1~10px |
-| 弹窗提醒 | 6 个分类开关（全部静音 + 5 类），开关状态就是配置 |
-| 行为 | 同步拖动、显示置顶标记两个开关，改完即时落盘 |
-| 关于 | 版本与用法速览 |
+想验证功能是否正常，可以开两个记事本窗口，一个置顶后拖动另一个盖上去，置顶的那个应该永远在上面。
 
-交互细节：
+### 步骤 5：首次启动授权
 
-- 录制期间同时挂 `WH_KEYBOARD_LL` 与 `WH_MOUSE_LL`，只吞 `keydown`、放行 `keyup`（否则系统里的修饰键状态会卡住）；所以按 `Win` 不会弹开始菜单。
-- 鼠标支持左/右/中/侧键/滚轮方向。右键、中键、侧键、滚轮都可以**不带修饰键**单独绑定；只有"裸左键"被拒绝（会抢掉全系统的点击）。不带修饰键的项用橙色文字提示"该鼠标键会被本软件全局接管"。
-- **修饰键状态自己记账**：录制期间我们吞了 `keydown`，系统根本不知道你按了 Ctrl，只查 `GetAsyncKeyState` 会出现"先按住 Ctrl 再点输入框、结果记成裸右键"。所以钩子把每个修饰键的按下/抬起记在 `g_held` 里，再与系统状态取并集。
-- **滚轮不按落点判断**：按钮类必须点在设置窗口外才算录制（框内的点击要留给 UI）；滚轮没有落点概念，光标停在设置窗口上也能录。
-- 打开设置窗口前先 `UnregisterHotKey` 释放自己占用的组合，否则"改回原组合"会被自己挡住。
-- 点「保存」时统一校验：**重复组合**（两项绑成一样，比如把"置顶"和"批量置顶"都设成 `Ctrl+右键`）+ **键盘占用**（用 `RegisterHotKey` 逐个试注册，失败立刻红字点名是哪一项）——校验不过就不关闭窗口。
-- 布局全部以 96 DPI 的逻辑坐标书写，绘制时 `Graphics::ScaleTransform(dpi/96)`、窗口尺寸同步放大，所以 125% / 150% 缩放下不会变小也不会糊。
+这程序是普通桌面应用（`asInvoker`），**没有安装向导、也没有运行时权限弹窗**，但下面几处需要你手动放行，否则会出现"看着在跑、实际不生效"：
 
-### 全选与同步拖动
-
-**全选**：`bindSelectAll`，默认 `Ctrl+Shift+A`（`MOD_CONTROL|MOD_SHIFT` + `A`）。在 `menu.cpp` 的「批量选择」子菜单里点「全选 / 取消全选未最小化窗口」走同一个 `App::SelectAllWindows()`，快捷键本身可以设成任意键鼠组合（设置 → 快捷键第 9 行）。
-
-判定规则（`EnumSelectable`）：`IsWindowVisible` + 非 `IsIconic` + 无 owner + 非 `WS_EX_TOOLWINDOW` + 有标题 + 尺寸大于 40×40 + 不是本进程窗口 + 未被 DWM cloak（UWP 关闭后残留的幽灵窗口）。**已是"全选状态"**（当前选择集覆盖了这些窗口）时再按一次 = 清空选择，否则用这批窗口替换选择集。
-
-**同步拖动**：`AppConfig::syncDrag`（`[general] syncDrag=1`）。开 / 关三个入口——托盘菜单「批量选择 → 同步拖动」、设置窗口「行为」页的开关、以及 `IDM_SYNCDRAG` 命令本身；改完立刻 `SaveCfg()`，下次启动保持。
-
-触发与边界：
-
-| 阶段 | 行为 |
-|---|---|
-| 触发条件 | 开关打开 + 选择集 ≥ 2 个窗口 + 左键按下点落在某个选中窗口上（`WindowFromPoint` → `GetAncestor(GA_ROOT)` 后比对选择集） |
-| 不触发 | 按住 `Ctrl` 时（那是「批量选择」手势）、选择集不足 2 个、点在未选中的窗口上 |
-| 跟随算法 | 记录每个选中窗口的 `GetWindowRect` 起始矩形；锚点窗口被它自己的拖动循环移动后，按 `锚点当前 left/top - 起始 left/top` 得到**绝对位移**，其余窗口 `SetWindowPos` 到 `各自起始矩形 + 位移` |
-| 为什么不累加增量 | 跨进程 `SetWindowPos` 之后 `GetWindowRect` 有 DWM 延迟，累加会越拖越偏；绝对位移天然幂等 |
-| 抬起收尾 | `WM_LBUTTONUP` 时按锚点最终位置再对齐一次，避免最后一帧没跟上 |
-| 锚点被最小化 / 关闭 / 取消选中 | 立即 `SyncDragEnd()`，其余窗口停在当前位移，不再跟随 |
-| 其余窗口被最小化 / 隐藏 | 跳过不移动，但仍留在选择集里（恢复后不会自己跳位） |
-| 其余窗口被关闭 | 跳过；下一次 `PruneSelection()` 会自动把它从选择集里清掉 |
-| 拖动途中改选择集 | 每帧都按当前选择集过滤，取消选中的窗口立刻停止跟随 |
-
-### 边框外观
-
-- **置顶边框颜色**：普通置顶窗口的描边颜色，7 个预设 + 「自定义颜色…」（系统取色器 / 设置窗口）。
-- **选中窗口边框颜色**：当前操作目标（最近一次置顶、或用滚轮/列表切过去的窗口）用另一种颜色，并且线宽 +2px、内圈多一条细线，一眼能区分"谁是当前选中的"。
-- **批量选中边框颜色**：批量选择集的颜色（默认绿），同样 +2px + 内描边；即使窗口没置顶也会画框，方便确认选了谁。托盘菜单里这三种颜色都能改（预设 7 色 + 自定义），与设置窗口「边框外观」页完全对齐。
-- **边框粗细**：1~10 像素，改完立刻重绘；已置顶的窗口全部同步，不会丢失。
-- 全部即时生效并写入配置。
-
-### 弹窗提醒（分类开关）
-
-托盘气泡是最容易被嫌吵的部分，所以拆成独立分类，由用户自己决定看哪些：
-
-| 分类 | 触发场景 | 默认 |
+| 事项 | 怎么开 | 不开的后果 |
 | --- | --- | --- |
-| 置顶 / 取消置顶提示 | 每次切换置顶、隐藏窗口 | 开 |
-| 切换置顶窗口提示 | `Win+滚轮` 或快捷键在置顶窗口间切换 | 开 |
-| 透明度调整提示 | 菜单里选透明度档位 | 开 |
-| 分组布局提示 | 保存 / 恢复布局成功或失败 | 开 |
-| 系统与错误提示 | 快捷键被占用、注册表写入失败等 | 开 |
-| 全部静音 | 一票否决，优先级最高 | 关 |
+| 让图标别被折叠 | 任务栏设置 → 通知区域 → 「隐藏的图标」里把 TopMostDesk 拖出来（Win11：任务栏设置 → 其他系统托盘图标） | 找不到托盘图标，以为程序没启动 |
+| 全局快捷键 | 无需授权，首次运行自动注册 | 组合被别的软件占用时会自动退让，并弹提示告诉你去改 |
+| 开机自启 | 托盘菜单 → 勾「开机自动启动」 | 不勾就每次手动开；勾了会写一条 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` |
+| 目标窗口是管理员权限程序 | 右键 `TopMostDesk.exe` → 以管理员身份运行 | 受 UIPI 限制，置顶对它无效（拖拽/焦点类操作也会被挡） |
+| Windows Defender / SmartScreen | 首次运行若被拦：更多信息 → 仍要运行；或把所在目录加进排除项 | 直接被杀软删掉或阻止启动 |
 
-`全部静音` 勾上后所有气泡都静默（菜单里的分类项同时置灰，表示"当前不会响"）；取消静音后各分类恢复各自的设置。全部开关都落在 `config.ini` 的 `[notify]` 段。
+**如果是 360 / 火绒 / 腾讯电脑管家 / 企业管控终端等国产安全软件，还要手动放行这些行为**：
 
-### 弹窗实现：单实例 + 原地覆盖（`toast.h/.cpp`）
+1. **全局键盘 / 鼠标钩子**——会提示"某程序正在监听你的键盘鼠标"，要选「允许 / 信任」；
+2. **注册表写入**（`HKCU\...\Run`）——会提示"修改开机启动项"，选允许，否则开机自启永远不生效；
+3. **跨进程修改窗口状态**（`SetWindowPos` 到别人窗口）——可能被报成"可疑操作"，把 exe 或整个目录加进白名单；
+4. **自绘覆盖层窗口**——部分安全软件的"窗口保护 / 防截屏"会拦住它，表现为置顶生效但看不到描边，关掉对应防护即可。
 
-系统气泡（`Shell_NotifyIcon` + `NIF_INFO`）是**队列制**：连续触发几次就排几个，每关一个才露出下一个，超时的还会堆进通知中心。所以这里不再用它，改成自绘的单实例弹窗：
-
-- **全局只有一个窗口**：`toast::Show()` 里 `EnsureWindow()` 只在第一次 `CreateWindowEx`，之后永远是同一个 `HWND`；新通知只做三件事——换文字、`InvalidateRect` 重画、`SetWindowPos(HWND_TOPMOST)` 提回最前。
-- **覆盖而不是新建**：`s.title / s.text / s.flags` 直接赋值，同一次显示里内容被整体替换，不存在"旧弹窗还挂在屏幕上"。
-- **同一事件 1 秒内连续触发只算一次**：`key`（取事件标题）与上次相同、且间隔 ≤ 1000ms 时判定为 burst，只更新文本、把自动关闭的 deadline 顺延到最后一次操作，不新增窗口也不额外闪。
-- **不同事件**：同样复用这个窗口，内容立刻覆盖（不排队、不叠放）。
-- **关闭方式**：最后一次更新后 2.8 秒自动消失；鼠标悬停时暂停倒计时；**点一下任意键即消失**，不需要找关闭按钮。
-- **不会被别的置顶窗口盖住**：200ms 的 watchdog 定时器把窗口反复 `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE)`，同时兼做倒计时检查。
-- **尺寸按 DPI 走**：380×88 逻辑像素，绘制时 `ScaleTransform(dpi/96)`，圆角用 `SetWindowRgn`，配色按 `NIIF_INFO / WARNING / ERROR` 分成蓝 / 橙 / 红三套（`NIIF_INFO=1`、`NIIF_ERROR=3` 是位关系，必须按低四位取值判断，否则 INFO 会被判成 ERROR）。
-
-## 应用图标
-
-图标源文件是 `assets/logo/png/favicon-512.png`，构建前先转成多尺寸 ICO：
-
-```bat
-powershell -ExecutionPolicy Bypass -File tools\make-icon.ps1
-```
-
-脚本按 16/20/24/32/40/48/64/128/256 九档缩放，把每档编码成 PNG 后拼成标准 ICO（Vista+ 支持 PNG 压缩条目），输出 `src/app.ico`。换 logo 时只替换 PNG 再跑一次脚本即可。
-
-配置方式：`src/app.rc` 里 `IDI_APP ICON "app.ico"`，`IDI_APP` 在 `src/resource.h` 定义为 101；`build.bat` / CMake 都会先用 `rc.exe` 编译 `.rc`，再把 `.res` 交给链接器。
-
-运行期加载（`app.cpp`）：
-
-```cpp
-// 窗口类图标（Alt+Tab / 任务栏）
-wc.hIcon   = LoadImageW(inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON, 32, 32, 0);
-wc.hIconSm = LoadImageW(inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
-                        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
-// 托盘图标（按当前 DPI 取小图标尺寸，失败时回退到代码绘制）
-m_icon = LoadImageW(inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
-                    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
-```
-
-生效范围：
-
-| 位置 | 说明 |
-| --- | --- |
-| 资源管理器里的 exe 文件图标 | 由 `.rsrc` 里的 `RT_GROUP_ICON` 决定，随文件走 |
-| 任务栏 / Alt+Tab / 窗口标题栏 | 来自 `WNDCLASSEXW.hIcon / hIconSm` |
-| 系统托盘（通知区域） | `Shell_NotifyIcon` 的 `hIcon` |
-| 文件属性 → 详细信息 | 来自同一 `.rc` 的 `VERSIONINFO`（资源名必须是 `1`，否则 Windows 按名字查不到） |
-| 快捷方式 / 固定到开始屏幕 | 系统读取 exe 内嵌图标，无需额外配置 |
-
-因为是内嵌资源，单文件拷走到任何机器都带图标，不需要旁边放 ico 文件。
-
-### 隐藏的调试参数
-
-```bat
-TopMostDesk.exe --test-settings  :: 启动后直接打开设置大窗口
-TopMostDesk.exe --test-hotkey    :: 启动后直接弹出单条快捷键录制框
-TopMostDesk.exe --test-input     :: 启动后直接弹出分组名称输入框
-TopMostDesk.exe --test-color     :: 启动后直接弹出系统取色器
-```
-
-配置与分组布局：`%APPDATA%\TopMostDesk\config.ini`
-
-## 架构
+## 📂 项目结构
 
 ```
-main.cpp        wWinMain：单实例互斥、DPI 感知、App 生命周期
-app.h/.cpp      App：隐藏主窗口 + 消息循环，动作分发、定时器、托盘事件
-menu.cpp        App::BuildMenu / HandleCommand：菜单装配、颜色/粗细/批量选择命令分发
-settings.h/.cpp 设置大窗口：左侧分页导航 + 快捷键就地录制 + 外观/提醒开关（GDI+ 自绘，按 DPI 缩放）
-winmgr.h/.cpp   WindowManager：被管理窗口状态表（置顶/透明度/隐藏）+ 安全封装
-overlay.h/.cpp  Overlay：单块透明点击穿透覆盖层，用逐像素 alpha 画描边（置顶/当前/批量选中三色）
-input_hook.h/.cpp  InputHook：全局 WH_MOUSE_LL 钩子，鼠标键映射成动作（带屏幕坐标）
-groups.h/.cpp   GroupStore：布局快照的采集/匹配/恢复，持久化到 INI
-dialogs.h/.cpp  按键录制框（键盘钩子 + 鼠标钩子 + 占用校验）
-inputbox.cpp    分组名称输入框
-ui_theme.h/.cpp GDI+ 绘制封装：圆角卡片、按钮、文字、窗口圆角
-config.h/.cpp   AppConfig（9 组 Binding + 外观 + 提醒开关）读写、开机自启
-tray.h/.cpp     托盘图标（资源优先，缺失时运行时绘制），通知转交 toast
-toast.h/.cpp    单实例通知弹窗：内容原地覆盖 + 1s 合并 + 自动消失
-common.h/.cpp   公共定义、Binding 结构与名称格式化
-app.rc          图标 IDI_APP + VERSIONINFO 版本信息
-resource.h      资源 ID 与版本号宏
-app.ico         由 assets/logo/png/favicon-512.png 生成的九档多尺寸图标
-tools/make-icon.ps1  PNG → ICO 生成脚本
+TopMostDesk/
+├─ src/
+│  ├─ main.cpp         wWinMain：单实例互斥、DPI 感知、App 生命周期
+│  ├─ app.h/.cpp       App：隐藏主窗口 + 消息循环，动作分发、定时器、托盘事件、前台跟随
+│  ├─ menu.cpp         托盘菜单装配与命令分发（颜色/粗细/批量选择/弹窗开关）
+│  ├─ settings.h/.cpp  设置大窗口：分页导航 + 快捷键就地录制（GDI+ 自绘，按 DPI 缩放）
+│  ├─ winmgr.h/.cpp    被管理窗口状态表：置顶 / 透明度 / 隐藏 + 安全封装
+│  ├─ overlay.h/.cpp   描边覆盖层：整屏分层窗口 + 逐像素 alpha 画四边
+│  ├─ input_hook.h/.cpp 全局鼠标钩子：鼠标键映射成动作（带屏幕坐标）
+│  ├─ groups.h/.cpp    分组布局：快照采集 / 打分匹配 / 恢复，持久化到 INI
+│  ├─ dialogs.h/.cpp   单个按键录制框（键盘钩子 + 鼠标钩子 + 占用校验）
+│  ├─ inputbox.cpp     分组名称输入框
+│  ├─ ui_theme.h/.cpp  GDI+ 绘制封装：圆角卡片、按钮、文字、窗口圆角
+│  ├─ config.h/.cpp    AppConfig 读写、开机自启
+│  ├─ toast.h/.cpp     单实例通知弹窗：内容原地覆盖 + 1s 合并 + 自动消失
+│  ├─ tray.h/.cpp      托盘图标（资源优先，缺失时运行时绘制）
+│  ├─ common.h/.cpp    公共定义、Binding 结构、取色器封装
+│  ├─ app.rc / app.ico / app.manifest / resource.h  图标、版本信息、清单
+├─ tools/
+│  ├─ build-local.bat  免 vcvars 的一键编译（自己拼 INCLUDE/LIB/PATH）
+│  └─ make-icon.ps1    PNG → 九档多尺寸 ICO
+├─ build/              编译输出（含一份现成的 TopMostDesk.exe）
+├─ CMakeLists.txt      CMake 构建脚本
+├─ build.bat           MSVC 命令行构建脚本
+└─ LICENSE / README.md
 ```
 
-### 关键实现
+二次开发从哪里下手：
 
-**置顶**：`SetWindowPos(hwnd, HWND_TOPMOST / HWND_NOTOPMOST, ..., SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)`。状态以 `GWL_EXSTYLE & WS_EX_TOPMOST` 为准，定时 `Purge()` 同步外部程序自己造成的状态漂移。
+- 想加一个新快捷键 → `config.h` 的 `AppConfig` 加 `Binding`、`common.h` 加 `HK_*`、`settings.cpp` 的 `kRows[]` 加一行、`app.cpp` 的 `OnAction()` 加分支；
+- 想改描边样式 → 只动 `overlay.cpp` 的 `drawOne`，其它文件不用碰；
+- 想加一个菜单项 → `app.h` 分一个不冲突的号段 + `menu.cpp` 的 `BuildMenu/HandleCommand` 两处。
 
-**全局热键**：键盘走 `RegisterHotKey` + `MOD_NOREPEAT`；鼠标走 `WH_MOUSE_LL`。两条通道最终都归一到同一个 `OnAction(id)`（`HK_TOGGLE / HK_HIDE / HK_SHOW_ALL / HK_NEXT / HK_PREV / HK_UNPIN_ALL / HK_SELECT / HK_BATCH_PIN / HK_MENU`），目标窗口统一取 `GetForegroundWindow()`。
+## 🛠️ 技术栈
 
-**鼠标钩子的坑**：`WH_MOUSE_LL` 的 `wParam` 才是消息号，`lParam` 是 `MSLLHOOKSTRUCT`（不是 `MSG`）。按 `MSG` 解析会读到垃圾 `message`，命中判断永远不成立——滚轮增量在 `mouseData` 的高位，侧键在 `mouseData` 的 `HIWORD`。
+| 项 | 用的什么 | 干什么用 |
+| --- | --- | --- |
+| 语言 | C++17 | 全项目就是它，无脚本层 |
+| UI 框架 | 纯 Win32 API + GDI+ | 自绘弹窗、菜单、设置窗口，不依赖 MFC/Qt/.NET |
+| 图形 | GDI+（`ui_theme.cpp`）+ 32bpp DIB 直写（`overlay.cpp`） | 圆角卡片/文字抗锯齿；描边覆盖层按像素写 alpha |
+| 分层窗口 | `UpdateLayeredWindow` + `AC_SRC_ALPHA` | 整屏逐像素透明，点穿透，不抢焦点 |
+| 全局热键 | `RegisterHotKey` + `MOD_NOREPEAT` | 键盘快捷键（Win/Ctrl/Alt/Shift 组合） |
+| 鼠标快捷键 | `WH_MOUSE_LL` 低级钩子 | `RegisterHotKey` 不认鼠标键，滚轮/侧键/右键走这条通道 |
+| 窗口监听 | `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` | 鼠标点了哪个置顶窗口，描边立刻跟着换色 |
+| 时间驱动 | `SetTimer`（200ms 标记重绘 / 2s 状态校准） | 覆盖层跟随窗口移动，顺手清理失效句柄 |
+| 本地存储 | INI（`WritePrivateProfileString` / `GetPrivateProfileString`） | 配置、分组布局，落在 `%APPDATA%\TopMostDesk\config.ini` |
+| 通知 | 自绘单实例弹窗（`toast.cpp`） | 不用 `Shell_NotifyIcon` 气泡，避免排队与堆通知中心 |
+| 构建 | MSVC 命令行脚本 + CMake（二选一） | 单 exe、静态链接 CRT，无第三方依赖 |
 
-**选中色跟着鼠标走**：`m_target` 原来只由快捷键 / 菜单 / 滚轮 / 列表点击赋值，用鼠标点一下置顶窗口时系统只是换了前台窗口，没有任何消息通知本程序，描边就停在旧窗口上——表现正是"选中了但不换色"。修法是 `SetWinEventHook(EVENT_SYSTEM_FOREGROUND, ..., WINEVENT_OUTOFCONTEXT)`：回调里**只** `PostMessage` 到主窗口（WinEvent 回调期间不能重入 `UpdateLayeredWindow`），主窗口收到后再比对 `GetForegroundWindow()` 与登记表，命中规则有三条——本进程窗口不算、已在批量选择集里不算（那是绿框）、没有置顶的窗口不算。200ms 的标记定时器里再调一次同一个 `SyncForegroundTarget()` 兜底，钩子失效时最多慢一拍。`RefreshOverlayNow()` 另外加了道闸：目标窗口已被取消置顶就不再传 `active`，否则取消置顶后那条"选中色"描边会一直挂在窗口上。
+## 🔧 权限说明
 
-**视觉标记**：不注入目标进程。创建一个覆盖整个虚拟屏幕的 `WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 弹出窗口，`CreateDIBSection` 建 32bpp 后备缓冲，直接按行写像素画四边条，再 `UpdateLayeredWindow(..., ULW_ALPHA)` 提交。200ms 重绘一次，窗口矩形用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 取真实可视边界（`GetWindowRect` 会多算 8px 不可见边框）。每帧末尾用 `SetWindowPos(HWND_TOPMOST, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)` 重新提到最前——否则其它 topmost 窗口被激活后会盖住描边。
+桌面程序没有 Android 那种权限清单，实际"权限"是下面这些系统能力。以 `asInvoker` 普通权限运行，不需要管理员（除非要管以管理员身份跑的目标窗口）。
 
-**显隐状态**：覆盖层在"没有可画窗口"时会 `ShowWindow(SW_HIDE)`。这是分层窗口的坑——`UpdateLayeredWindow` 只更新内容、不会把隐藏的窗口显示出来，所以恢复画之前必须显式 `ShowWindow(SW_SHOWNOACTIVATE)`，否则隐藏过一次就再也画不出来（v2 的"全部丢边框"就是这个）。
+| 权限 / 能力 | 为什么需要 | 在哪开 | 不开会怎样 |
+| --- | --- | --- | --- |
+| 全局键盘热键（`RegisterHotKey`） | 任意窗口在前台时都能响应 `Win+Shift+T` 等组合 | 首次运行自动注册 | 组合被占用会自动退让到备用键并提示；仍失败则只能从托盘菜单操作 |
+| 全局鼠标钩子（`WH_MOUSE_LL`） | 绑定鼠标键 / 滚轮切换置顶、`Ctrl+左键` 圈选窗口 | 自动安装；被杀软拦时在安全软件里「允许」 | 鼠标快捷键、批量选择、同步拖动全部失效，键盘快捷键仍可用 |
+| 前台窗口事件（`SetWinEventHook`） | 鼠标点了哪个置顶窗口，描边跟着换色 | 自动安装 | 只是"选中色不跟随"，200ms 定时器会兜底，功能不受影响 |
+| 写注册表启动项 | 开机自启 | 托盘菜单 → 勾「开机自动启动」 | 每次手动启动；写入失败会弹错误提示并自动取消勾选 |
+| 操作其它进程的窗口（`SetWindowPos` / `SetLayeredWindowAttributes`） | 置顶、调透明度、隐藏 | 默认就有（同权限级） | 对管理员权限的窗口（任务管理器、部分安装程序）无效，需以管理员运行本程序 |
+| 写 `%APPDATA%\TopMostDesk\` | 存配置与分组布局 | 首次运行自动创建 | 无法记住设置，每次启动都是默认值 |
+| 通知区域（托盘）图标 | 程序唯一的入口 | 系统自动；图标可能被折叠 | 折叠后在「隐藏的图标」里找，或重新拖动出来 |
 
-**菜单命令 ID 分段**：每类功能占独立号段（透明度 200、置顶列表 400、颜色 620/640、粗细 660、通知 700…），分发时用 `id >= base && id < base + 精确数量` 判定。v2 曾把"自定义颜色"（640）和"粗细"（680）放进 620~669 / 650~699 的宽松区间里，被前面的预设色分支整段吞掉——表现为点自定义颜色没反应、改粗细不生效。
+## ❓ 常见问题 FAQ
 
-**配置落盘**：`WritePrivateProfileString` 内部有缓存，写完必须再调一次 `WritePrivateProfileString(nullptr, nullptr, nullptr, file)` 强制 flush，否则其它进程（包括面板预览、脚本）读到的还是旧值。
+### 1. 编译一直失败 / 报 `cl.exe` `rc.exe` 找不到
 
-**取色器被置顶窗口压住**：`ChooseColorW` 弹出的对话框本身不是 topmost，而本程序管理的置顶窗口是 topmost，托盘里点「自定义颜色…」时对话框会开到置顶窗口下面，看起来就是"点了没反应"。`tmd::ChooseColorTopmost()` 起一个看门线程（最多盯 4 秒、每 100ms 一次 `EnumThreadWindows` 找本线程的 `#32770`），对话框一出现就 `SetWindowPos(HWND_TOPMOST)` + `SetForegroundWindow`。菜单和设置窗口都走这一个入口。
+**症状**：`'cl' 不是内部或外部命令`、`[FAILED] rc error`、`LNK1104`。
 
-**覆盖层后备位图**：`EnsureBuffer()` 重建 DIB 前必须先把旧位图从内存 DC 里换出去（换一块 1×1 占位图），否则 `DeleteObject` 会因"对象仍被 DC 选中"而失败，改分辨率/接投影时每来一次就泄漏一个位图。
+**解决**（按顺序试）：
 
-**透明度**：动态加 `WS_EX_LAYERED` + `SetLayeredWindowAttributes(..., LWA_ALPHA)`。记录"分层样式是不是我们加的"，恢复 100% 时只移除自己加的那一层，不破坏应用原有的分层属性。样式变更后补一次 `SWP_FRAMECHANGED`。
+1. 开始菜单搜 `x64 Native Tools Command Prompt for VS 2022`，**在这个窗口里**执行 `build.bat`——普通 cmd 不会加载 MSVC 环境；
+2. 还是不行，直接用 `tools\build-local.bat`：它自己按版本号拼 `INCLUDE / LIB / PATH`，不依赖 vcvars，也不碰 `reg.exe`；
+3. 报 `rc.exe` 找不到 → VS Installer 里补装「Windows 10/11 SDK」；
+4. 报 `LNK1104 无法打开 TopMostDesk.exe` → 程序还在托盘里跑着，先退出（或任务管理器结束进程）再编；
+5. 路径里有中文/空格又出现莫名其妙乱码 → 把仓库挪到 `D:/code/` 这类纯英文短路径再试。
 
-**视觉标记**：不注入目标进程。创建一个覆盖整个虚拟屏幕的 `WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 弹出窗口，`CreateDIBSection` 建 32bpp 后备缓冲，直接按行写像素画四边条，再 `UpdateLayeredWindow(..., ULW_ALPHA)` 提交。250ms 重绘一次，窗口矩形用 `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)` 取真实可视边界（`GetWindowRect` 会多算 8px 不可见边框）。
+### 2. 程序启动了但什么都看不到
 
-**分组布局**：快照记录 `exe 名 / 类名 / 标题 / 矩形 / 置顶 / 透明度 / 隐藏`。恢复时枚举顶层窗口，按 `exe` 必须相同、`class` 与 `title` 加分的方式打分匹配，逐个 `SetWindowPos` 复位并重放置顶/透明/隐藏状态。字段用 `\|` 分隔、`\p` 转义，写进 INI 的 `[layout:<名称>]` 段。
+它不是窗口程序，**只在托盘出现图标**。
 
-**托盘**：`Shell_NotifyIcon` + `NOTIFYICON_VERSION_4`；图标由代码绘制（圆角块 + 向上箭头），不依赖 `.ico` 资源；监听 `TaskbarCreated` 消息，Explorer 崩溃重启后自动重新挂载。
+- 点任务栏右下角的 `^` 展开隐藏图标，把 TopMostDesk 拖到常显区；
+- Win11：设置 → 个性化 → 任务栏 → 其他系统托盘图标 → 打开 TopMostDesk；
+- 实在找不到：任务管理器看有没有 `TopMostDesk.exe` 进程；没有就是被安全软件拦了，见下一条。
 
-## 已知边界
+### 3. 弹窗提醒收不到 / 被 Windows 通知吃掉
 
-- 以 `asInvoker` 运行。目标窗口若以管理员权限运行，受 UIPI 限制，置顶操作可能无效——需要时以管理员身份启动本程序（清单里 `uiAccess="false"`，未做签名）。
-- 全屏独占（Exclusive Fullscreen）游戏上覆盖层不显示，属预期。
-- 透明度依赖窗口自身的分层合成能力，个别 DirectComposition 自绘窗口可能忽略 `LWA_ALPHA`。
+本程序**不用**系统通知中心的气泡，弹的是自绘窗口，所以"通知被关了"通常指两种情况：
 
-## 许可证
+1. 自己在托盘菜单 →「弹窗提醒」里把对应分类关了，或勾了「全部静音」——回去打开即可，开关状态就在菜单勾选上；
+2. 自绘弹窗被"专注助手 / 勿扰模式"或某些全屏程序挡住——退出全屏独占（游戏）或关掉专注助手。
 
-MIT License，见 [LICENSE](LICENSE)。
+如果连"托盘图标都没有"，那是程序没跑起来，不是通知问题。
+
+### 4. 后台被杀、置顶/快捷键突然不灵
+
+- 系统重启后没有自动启动 → 托盘菜单勾上「开机自动启动」，并确认安全软件没拦注册表写入；
+- 用了一阵突然全部失效 → 多半是 Explorer 重启过：程序监听了 `TaskbarCreated`，正常会自动重新挂载；若仍无效，重启程序即可；
+- 目标窗口是管理员权限程序 → 本程序也要以管理员身份运行（UIPI 限制，不是 bug）；
+- 笔记本插拔外接显示器后描边位置不对 → 覆盖层是按虚拟屏幕尺寸重建的，切换显示器后等 200ms 自动纠正；仍不对就重启程序。
+
+### 5. 置顶了但看不到描边 / 描边位置偏
+
+- 菜单 →「置顶标记外观」→ 确认「显示置顶标记」是勾上的；
+- 全屏独占（Exclusive Fullscreen）游戏上覆盖层按设计不显示，改「无边框窗口化」即可；
+- 安全软件的"窗口保护 / 防截屏"会拦住分层窗口，把 exe 加白名单；
+- 个别 DirectComposition 自绘窗口的边框位置会差几像素，这是 `DwmGetWindowAttribute` 拿到的可视边界与窗口矩形本身的差异，不影响置顶功能。
+
+### 6. 快捷键按了没反应
+
+- 组合被别的软件占用：程序启动时会自动换成备用组合并弹提示，具体当前绑定看托盘提示（鼠标悬停图标）；
+- 自己改过又忘记了：托盘菜单 →「快捷键与设置…」→「快捷键」页，每一项都写着当前绑定；
+- 设置里保存时提示"重复组合"或"被系统占用"，按红字点名改掉再保存。
+
+## ✅ 已验证环境
+
+| 系统版本 | 机型 / CPU | 工具链 | 结果 |
+| --- | --- | --- | --- |
+| Windows 11 家庭版 中文版（10.0.26300） | ASUS TUF Gaming A15 FA507NV / AMD Ryzen 7 7735H | VS 2022 Professional + MSVC 14.43.34808 + SDK 10.0.22621.0 | ✅ 编译通过，全部功能正常 |
+| Windows 10 22H2 | 待补充 | 同上 | ⬜ 待验证 |
+| Windows 11 23H2 / 24H2 | 待补充 | 同上 | ⬜ 待验证 |
+
+> 跑通了别的系统？欢迎提 Issue 或 PR 补一行，这张表比任何宣传都可靠。
+
+## 🗺️ 后续计划
+
+- [ ] 高 DPI 多显示器混合缩放（150% + 100%）下的描边对齐细化；
+- [ ] 置顶窗口的"分组预设"支持导入/导出为文件，方便换机；
+- [ ] 深浅色主题跟随系统（现在是浅色自绘）；
+- [ ] 便携模式：配置写在 exe 同目录，不碰 `%APPDATA%`；
+- [ ] 托盘菜单支持二级搜索 / 快速过滤置顶列表。
+
+没有排期，纯看心情。想要哪个先做，直接开 Issue 顶一下；也欢迎自己提 PR。
+
+## 🤝 贡献
+
+Bug、想法、体验吐槽都欢迎开 Issue；代码改动请先看一眼 [CONTRIBUTING.md](CONTRIBUTING.md)（编译方式、代码风格、提交信息格式），然后直接提 PR。
+
+## 📄 开源协议
+
+本项目采用 **MIT License**，全文见 [LICENSE](LICENSE)。
 
 ```
 Copyright (c) 2026 majic-origin
 ```
 
-可以自由使用、修改、分发、商用，保留版权声明即可；软件按"现状"提供，不含任何担保。
+你可以自由使用、修改、分发、商用，保留版权声明即可；软件按"现状"提供，不含任何担保。
+
+## 🙏 致谢
+
+- **零第三方库**：全部界面与图形都是 Win32 + GDI+ 手写，没有引入任何运行时依赖。省下来的这份信任，先谢谢 Windows SDK 文档和 MSDN 上那些写得比教科书还清楚的文章。
+- 灵感来自 Raymond Chen 的 **The Old New Thing** 以及 `UpdateLayeredWindow` / `WH_MOUSE_LL` 相关的无数 Stack Overflow 问答——那些"为什么我的顶层窗口被盖住""为什么钩子收不到消息"的坑，前人已经踩过一遍了。
+- 感谢 [shields.io](https://shields.io) 提供徽章服务。
+- 最后谢谢每一个真的把它放在托盘里用的人——你们的吐槽是这个项目唯一的路线图。
