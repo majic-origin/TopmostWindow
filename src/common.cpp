@@ -40,6 +40,7 @@ std::wstring MouseButtonName(UINT code)
         case TMD_MOUSE_X2:         return L"鼠标侧键2";
         case TMD_MOUSE_WHEEL_UP:   return L"滚轮上滚";
         case TMD_MOUSE_WHEEL_DOWN: return L"滚轮下滚";
+        case TMD_MOUSE_HOVER:      return L"鼠标移动";
         default:                   return L"?";
     }
 }

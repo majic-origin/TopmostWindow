@@ -39,6 +39,11 @@ LRESULT CALLBACK InputHook::Proc(int code, WPARAM w, LPARAM l)
         const MSLLHOOKSTRUCT* ms = (const MSLLHOOKSTRUCT*)l;
         const POINT pt = { ms->pt.x, ms->pt.y };
 
+        // 手势拦截优先于一切：命中即整条吞掉，Matcher/Listener 都不参与，
+        // 所以"在窗口任意区域拖动"不会同时触发批量选择或同步拖动。
+        if (g_self->m_interceptor && g_self->m_interceptor((UINT)w, *ms, LiveMods()))
+            return 1;
+
         // 旁路监听（同步拖动）：不参与命中判定，也不会吞掉事件
         if (g_self->m_listener &&
             (w == WM_MOUSEMOVE || w == WM_LBUTTONDOWN || w == WM_LBUTTONUP)) {

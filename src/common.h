@@ -46,6 +46,11 @@
 #define TMD_MOUSE_WHEEL_UP   6
 #define TMD_MOUSE_WHEEL_DOWN 7
 
+// 悬停缩放专用伪键值：表示"鼠标移动本身"。
+// 它不是一次点击，所以不会出现在 InputHook 的命中判定里（那条通道只在按键按下时匹配），
+// 只在 GestureEngine 里当作"这个 Binding 绑定的是'移动'而不是某个鼠标键"的标记。
+#define TMD_MOUSE_HOVER      8
+
 // 设备类型
 #define TMD_DEV_KEYBOARD 0
 #define TMD_DEV_MOUSE    1

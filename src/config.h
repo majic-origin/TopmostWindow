@@ -39,6 +39,18 @@ struct AppConfig
     Binding bindAlphaUp   { TMD_DEV_KEYBOARD, MOD_CONTROL, VK_UP };
     Binding bindAlphaDown { TMD_DEV_KEYBOARD, MOD_CONTROL, VK_DOWN };
 
+    // ---- 鼠标手势（默认关闭，开关打开后由 GestureEngine 接管） ----
+    // 悬停缩放：按住这个 Binding 的修饰键，光标停在目标窗口上，左右/上下移动直接改它的尺寸。
+    // key 固定是 TMD_MOUSE_HOVER（表示"移动"本身），因此不会挤进 InputHook 的点击命中判定。
+    Binding bindHoverResize { TMD_DEV_MOUSE, MOD_ALT,   TMD_MOUSE_HOVER };
+    // 任意区域拖动：按住这个组合，在窗口任意位置按下并拖动即可移动窗口，不需要标题栏。
+    Binding bindFreeDrag    { TMD_DEV_MOUSE, MOD_ALT,   TMD_MOUSE_MIDDLE };
+
+    bool     hoverResize     = false;   // 悬停缩放开关
+    bool     freeDrag        = false;   // 任意区域拖动开关
+    bool     gestureEdgeSnap = false;   // 贴边优先：靠近哪条边就锁那条边，默认关（走纯轴锁定）
+    int      gestureDeadzone = 8;       // 缩放手势死区（逻辑像素，按目标窗口 DPI 换算）
+
     bool     autoStart       = false;                 // 开机自启
     bool     showMarker      = true;                  // 置顶窗口视觉标记
     bool     syncDrag        = false;                 // 多选后拖动一个，其余同步移动

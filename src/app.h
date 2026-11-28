@@ -6,6 +6,7 @@
 #include "tray.h"
 #include "groups.h"
 #include "input_hook.h"
+#include "gesture.h"
 
 // 菜单命令 ID —— 每一类占独立号段，禁止相互重叠（v3 的粗细/自定义色失效就是号段撞车）
 enum : UINT {
@@ -109,6 +110,7 @@ private:
     void  OpenSettings();                // 大窗口设置面板
     void  ReRegisterHotkeys();
     void  ReRegisterToggleForCapture();
+    void  SyncGesture();                 // 把 m_cfg 里的手势配置推给 GestureEngine
     void  RefreshOverlayNow();
     void  RefreshTrayTip();
     void  ApplyMarkerConfig();
@@ -131,6 +133,7 @@ private:
     TrayIcon      m_tray;
     GroupStore    m_groups;
     InputHook     m_input;
+    GestureEngine m_gesture;      // 悬停缩放 + 任意区域拖动（两个开关都默认关）
 
     HWND  m_target = nullptr;    // 当前操作目标（也是"选中"的置顶窗口）
     std::vector<HWND> m_selected;   // 批量选择集（Ctrl+左键点窗口加入）

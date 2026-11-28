@@ -99,6 +99,8 @@ bool LoadConfig(AppConfig& cfg)
     LoadBinding(f, L"selectall", cfg.bindSelectAll);
     LoadBinding(f, L"alphaup",   cfg.bindAlphaUp);
     LoadBinding(f, L"alphadown", cfg.bindAlphaDown);
+    LoadBinding(f, L"hoverresize", cfg.bindHoverResize);
+    LoadBinding(f, L"freedrag",    cfg.bindFreeDrag);
 
     const std::wstring G = L"general";
     cfg.autoStart       = ReadUInt(G, L"autoStart",       cfg.autoStart ? 1 : 0, f) != 0;
@@ -109,6 +111,13 @@ bool LoadConfig(AppConfig& cfg)
     cfg.markerSelect    = ReadUInt(G, L"markerSelect",    (UINT)cfg.markerSelect, f);
     cfg.markerThickness = (int)ReadUInt(G, L"markerThickness", (UINT)cfg.markerThickness, f);
     cfg.defaultAlpha    = (BYTE)ReadUInt(G, L"defaultAlpha", cfg.defaultAlpha, f);
+
+    cfg.hoverResize     = ReadUInt(G, L"hoverResize",     cfg.hoverResize ? 1 : 0, f) != 0;
+    cfg.freeDrag        = ReadUInt(G, L"freeDrag",        cfg.freeDrag ? 1 : 0, f) != 0;
+    cfg.gestureEdgeSnap = ReadUInt(G, L"gestureEdgeSnap", cfg.gestureEdgeSnap ? 1 : 0, f) != 0;
+    cfg.gestureDeadzone = (int)ReadUInt(G, L"gestureDeadzone", (UINT)cfg.gestureDeadzone, f);
+    if (cfg.gestureDeadzone < 2)  cfg.gestureDeadzone = 2;
+    if (cfg.gestureDeadzone > 64) cfg.gestureDeadzone = 64;
 
     if (cfg.markerThickness < 1)  cfg.markerThickness = 1;
     if (cfg.markerThickness > 10) cfg.markerThickness = 10;
@@ -139,6 +148,8 @@ bool SaveConfig(const AppConfig& cfg)
     SaveBinding(f, L"selectall", cfg.bindSelectAll);
     SaveBinding(f, L"alphaup",   cfg.bindAlphaUp);
     SaveBinding(f, L"alphadown", cfg.bindAlphaDown);
+    SaveBinding(f, L"hoverresize", cfg.bindHoverResize);
+    SaveBinding(f, L"freedrag",    cfg.bindFreeDrag);
 
     WriteUInt(L"general", L"autoStart",       cfg.autoStart ? 1 : 0, f);
     WriteUInt(L"general", L"showMarker",      cfg.showMarker ? 1 : 0, f);
@@ -148,6 +159,11 @@ bool SaveConfig(const AppConfig& cfg)
     WriteUInt(L"general", L"markerSelect",    (UINT)cfg.markerSelect, f);
     WriteUInt(L"general", L"markerThickness", (UINT)cfg.markerThickness, f);
     WriteUInt(L"general", L"defaultAlpha",    cfg.defaultAlpha, f);
+
+    WriteUInt(L"general", L"hoverResize",     cfg.hoverResize ? 1 : 0, f);
+    WriteUInt(L"general", L"freeDrag",        cfg.freeDrag ? 1 : 0, f);
+    WriteUInt(L"general", L"gestureEdgeSnap", cfg.gestureEdgeSnap ? 1 : 0, f);
+    WriteUInt(L"general", L"gestureDeadzone", (UINT)cfg.gestureDeadzone, f);
 
     WriteUInt(L"notify", L"muted",  cfg.notify.muted ? 1 : 0, f);
     WriteUInt(L"notify", L"pin",    cfg.notify.pin ? 1 : 0, f);

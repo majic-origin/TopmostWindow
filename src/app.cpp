@@ -21,6 +21,7 @@ App::App(HINSTANCE inst, int testMode) : m_inst(inst), m_testMode(testMode)
 
 App::~App()
 {
+    m_gesture.Shutdown();
     m_input.Uninstall();
     if (m_fgHook) { UnhookWinEvent(m_fgHook); m_fgHook = nullptr; }
     if (m_locHook) { UnhookWinEvent(m_locHook); m_locHook = nullptr; }
@@ -105,6 +106,17 @@ bool App::Init()
         return 0;
     });
     m_input.SetListener([this](UINT msg, POINT pt) { OnHookMouse(msg, pt); });
+
+    // 鼠标手势：悬停缩放 + 任意区域拖动。interceptor 的优先级高于所有鼠标热键，
+    // 所以"在窗口上拖动"不会同时触发批量选择或同步拖动；两个功能开关都关的时候
+    // OnHookMouse 直接返回 false，这条通道等于不存在。
+    m_gesture.SetNotify(m_hwnd);
+    SyncGesture();
+    m_input.SetInterceptor([this](UINT msg, const MSLLHOOKSTRUCT& ms, UINT mods) -> bool {
+        if (m_modal) return false;      // 设置窗口开着时不要抢鼠标
+        return m_gesture.OnHookMouse(msg, ms, mods);
+    });
+
     m_input.Install(m_hwnd);
 
     m_msgTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
@@ -189,6 +201,10 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
         OnAction((UINT)w);
         return 0;
 
+    case WM_TMD_GESTURE: // 鼠标手势（来自 GestureEngine，钩子线程只投信号，计算都在这里做）
+        m_gesture.OnFrame();
+        return 0;
+
     case WM_TMD_TRAY:
         OnTray(w, l);
         return 0;
@@ -198,6 +214,7 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
             // 兜底：万一 WinEvent 钩子被系统回收（比如 Explorer 重启、钩子安装失败），
             // 200ms 的节拍里自己对比一次前台窗口，边框颜色最多慢一拍，不会永久卡住
             SyncForegroundTarget();
+            m_gesture.OnIdleTick();   // 修饰键松开的兜底检查（可能一个 mousemove 都没来）
             RefreshOverlayNow();
         }
         else if (w == IDT_PURGE) m_wm.Purge();
@@ -604,6 +621,9 @@ void App::OpenSettings()
     for (UINT id : ids) UnregisterHotKey(m_hwnd, id);
     m_toggleHotkeyOk = false;
 
+    // 手势引擎也要先收手：否则设置窗口开着的时候还可能留下一个"正在改窗口"的状态
+    m_gesture.Shutdown();
+
     AppConfig next = m_cfg;
     m_modal = true;
     const bool saved = ShowSettingsWindow(m_hwnd, &next);
@@ -613,10 +633,24 @@ void App::OpenSettings()
         m_cfg = next;
         SaveCfg();
         ApplyMarkerConfig();
+        SyncGesture();
         RefreshOverlayNow();
     }
     ReRegisterHotkeys();
     RefreshTrayTip();
+}
+
+void App::SyncGesture()
+{
+    GestureEngine::Config gc;
+    gc.hoverResize = m_cfg.hoverResize;
+    gc.freeDrag    = m_cfg.freeDrag;
+    gc.edgeSnap    = m_cfg.gestureEdgeSnap;
+    gc.hoverMods   = m_cfg.bindHoverResize.mods;
+    gc.dragMods    = m_cfg.bindFreeDrag.mods;
+    gc.dragButton  = m_cfg.bindFreeDrag.key;
+    gc.deadzone    = m_cfg.gestureDeadzone;
+    m_gesture.Sync(gc);
 }
 
 void App::StepPinned(int dir)
