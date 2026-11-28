@@ -636,7 +636,7 @@ void PaintPageAbout(Gdiplus::Graphics& gfx)
     ui::Text(gfx, L"关于", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
 
     const wchar_t* lines[] = {
-        L"TopMostDesk 1.6.4 — Windows 窗口置顶助手",
+        L"TopMostDesk 1.7.0 — Windows 窗口置顶助手",
         L"",
         L"· 置顶 / 取消置顶：焦点放到目标窗口后按快捷键",
         L"· 选中窗口透明度：Ctrl+↑ / Ctrl+↓ 每次 ±10%（0~100%），只对当前选中窗口生效",
