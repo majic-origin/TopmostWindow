@@ -42,7 +42,8 @@ struct AppConfig
     // ---- 鼠标手势（默认关闭，开关打开后由 GestureEngine 接管） ----
     // 悬停缩放：按住这个 Binding 的修饰键，光标停在目标窗口上，左右/上下移动直接改它的尺寸。
     // key 固定是 TMD_MOUSE_HOVER（表示"移动"本身），因此不会挤进 InputHook 的点击命中判定。
-    Binding bindHoverResize { TMD_DEV_MOUSE, MOD_ALT,   TMD_MOUSE_HOVER };
+    // 默认 Ctrl：Alt 松开时目标窗口菜单栏会获得一次焦点，Ctrl 没有任何系统级副作用。
+    Binding bindHoverResize { TMD_DEV_MOUSE, MOD_CONTROL, TMD_MOUSE_HOVER };
     // 任意区域拖动：按住这个组合，在窗口任意位置按下并拖动即可移动窗口，不需要标题栏。
     Binding bindFreeDrag    { TMD_DEV_MOUSE, MOD_ALT,   TMD_MOUSE_MIDDLE };
 

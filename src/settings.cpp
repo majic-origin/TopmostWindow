@@ -494,6 +494,35 @@ void PaintPageBehavior(Gdiplus::Graphics& gfx)
              11.0f, ui::kSubText);
 }
 
+// 与"悬停缩放"共用同一组修饰键的普通鼠标绑定。悬停缩放是持续状态，按住这组键的
+// 整段时间里它都活着，所以这些项也会同时响应：移动鼠标调尺寸时滚一下滚轮、点一下
+// 右键，两个动作会叠加。只提示、不拦保存——很多人就是想把 Ctrl 留给它。
+std::wstring SharedModsHint()
+{
+    if (!s.work.hoverResize) return L"";
+    const UINT hm = s.work.bindHoverResize.mods;
+    if (hm == 0) return L"";
+
+    std::wstring names;
+    int n = 0;
+    for (int i = 0; i < kRowCount; ++i) {
+        const Binding& b = s.work.*(kRows[i].field);
+        if (b.key == 0 || b.key == TMD_MOUSE_HOVER) continue;
+        if (b.device != TMD_DEV_MOUSE) continue;
+        if (b.mods != hm) continue;          // 精确相等才算共用：超集不会在按住时匹配上
+        if (!names.empty()) names += L"、";
+        names += kRows[i].label;
+        ++n;
+    }
+    if (s.work.freeDrag && s.work.bindFreeDrag.key != 0 && s.work.bindFreeDrag.mods == hm) {
+        if (!names.empty()) names += L"、";
+        names += L"任意区域拖动窗口";
+        ++n;
+    }
+    if (n == 0) return L"";
+    return tmd::Format(L"⚠ 按住 %s 时也会响应：%s", ModsText(hm).c_str(), names.c_str());
+}
+
 void PaintPageGesture(Gdiplus::Graphics& gfx)
 {
     ui::Text(gfx, L"鼠标手势", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
@@ -535,8 +564,8 @@ void PaintPageGesture(Gdiplus::Graphics& gfx)
                 : (s.recMods ? (ModsText(s.recMods) + L" + …") : L"请按下组合…");
             col = ui::kAccent;
         } else if (rows[i].bind->key) {
+            // DescribeBinding 已经把 TMD_MOUSE_HOVER 显示成"鼠标移动"，不要再追加一次
             txt = tmd::DescribeBinding(*rows[i].bind);
-            if (i == 0) txt += L"  + 鼠标移动";
         } else {
             txt = L"未设置（功能不会生效）";
             col = ui::kSubText;
@@ -580,14 +609,26 @@ void PaintPageGesture(Gdiplus::Graphics& gfx)
                  11.5f, ui::kSubText);
     }
 
+    // 共用修饰键的实时提示（橙色）；位置在死区行下方，没有提示时下面几行上移
+    const int ny = kGeTop + 3 * kGeStep + 48;
+    const std::wstring shared = SharedModsHint();
+    if (!shared.empty()) {
+        ui::Text(gfx, shared,
+                 Gdiplus::RectF((REAL)kCX0, (REAL)ny, (REAL)(kCX1 - kCX0), 18.0f),
+                 10.5f, RGB(198, 116, 18));
+        ui::Text(gfx, L"     调尺寸的同时滚动或点击，两者会叠加生效；想让它们互不干扰就把修饰键错开。",
+                 Gdiplus::RectF((REAL)kCX0, (REAL)ny + 18, (REAL)(kCX1 - kCX0), 18.0f),
+                 10.5f, RGB(198, 116, 18));
+    }
+    const int by = shared.empty() ? ny : ny + 42;
+
     // 副作用必须写在明面上，否则用户只会觉得"菜单怎么闪了一下"
-    const int ny = kGeTop + 3 * kGeStep + 62;
     ui::Text(gfx, L"· 悬停缩放若用 Alt：松开 Alt 时目标窗口的菜单栏会获得一次焦点（浏览器会亮访问键）。",
-             Gdiplus::RectF((REAL)kCX0, (REAL)ny, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
-    ui::Text(gfx, L"· 想彻底干净就改成「单独按住 Ctrl」——Ctrl 按下松开没有任何系统级副作用。",
-             Gdiplus::RectF((REAL)kCX0, (REAL)ny + 20, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+             Gdiplus::RectF((REAL)kCX0, (REAL)by, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+    ui::Text(gfx, L"· 单独按住 Ctrl 没有任何系统级副作用，是这一项最干净的默认值。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)by + 20, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
     ui::Text(gfx, L"· 拖动一旦开始就跑完整个按住过程，中途松开修饰键不中断；松手即停。",
-             Gdiplus::RectF((REAL)kCX0, (REAL)ny + 40, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+             Gdiplus::RectF((REAL)kCX0, (REAL)by + 40, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
 }
 
 void PaintPageAbout(Gdiplus::Graphics& gfx)
@@ -704,7 +745,7 @@ void Paint(HWND hwnd)
             hint = L"按 Esc 或点右上角关闭窗口。";
         }
         ui::Text(gfx, hint,
-                 Gdiplus::RectF((REAL)kCX0, (REAL)kFootTop + 16, 396.0f, 36.0f),
+                 Gdiplus::RectF((REAL)kCX0, (REAL)kFootTop + 16, 400.0f, 36.0f),
                  11.5f, s.error.empty() ? ui::kSubText : ui::kDanger);
 
         ui::DrawButton(gfx, s.cancelBtn);
@@ -756,47 +797,10 @@ bool TrySave()
         }
     }
 
-    // 手势绑定与普通快捷键的"修饰键包含"冲突。
-    // 上面的循环只查"完全相同"，查不出包含关系——而悬停缩放是**持续状态**：
-    // 只要它要求的修饰键是另一项的子集，两者就会在同一时刻同时成立
-    // （悬停用 Alt、置顶也是 Alt+左键 → 按住 Alt 移动时置顶手势也跟着走）。
-    {
-        const Binding* gb[2] = { &s.work.bindHoverResize, &s.work.bindFreeDrag };
-        const wchar_t* gn[2] = { L"悬停缩放窗口", L"任意区域拖动窗口" };
-        const bool    gOn[2] = { s.work.hoverResize, s.work.freeDrag };
-
-        for (int gi = 0; gi < 2; ++gi) {
-            if (!gOn[gi] || gb[gi]->key == 0 || gb[gi]->mods == 0) continue;
-
-            for (int i = 0; i < kRowCount; ++i) {
-                const Binding& b = s.work.*(kRows[i].field);
-                if (b.key == 0 || b.device != gb[gi]->device) continue;
-                if ((b.mods & gb[gi]->mods) != gb[gi]->mods) continue;
-
-                s.error = tmd::Format(
-                    L"「%s」要求按住 %s，而「%s」也在这个组合下触发，两者会同时生效。"
-                    L"错开一下：例如把悬停缩放改成单独按住 Ctrl。",
-                    gn[gi], ModsText(gb[gi]->mods).c_str(), kRows[i].label);
-                Repaint(s.hwnd);
-                return false;
-            }
-
-            for (int gj = gi + 1; gj < 2; ++gj) {
-                if (!gOn[gj] || gb[gj]->key == 0 || gb[gj]->mods == 0) continue;
-                const bool eitherWay =
-                    ((gb[gj]->mods & gb[gi]->mods) == gb[gi]->mods) ||
-                    ((gb[gi]->mods & gb[gj]->mods) == gb[gj]->mods);
-                if (!eitherWay) continue;
-
-                s.error = tmd::Format(
-                    L"「%s」和「%s」的修饰键互相包含，会同时触发。"
-                    L"把悬停缩放改成单独按住 Ctrl（拖动继续用 Alt）就互不干扰了。",
-                    gn[gi], gn[gj]);
-                Repaint(s.hwnd);
-                return false;
-            }
-        }
-    }
+    // 手势与普通快捷键"共用修饰键"的情况故意不拦保存：
+    // 悬停缩放是持续状态，只要和某一项的修饰键完全相同，按住时两者会叠加。
+    // 但拦下来等于不让人用（很可能用户就是想把 Ctrl 留给它），所以改在
+    // 「鼠标手势」页里实时列出来，由用户自己权衡。见 SharedModsHint()。
 
     std::vector<UINT> held;
     for (int i = 0; i < kRowCount; ++i) {
