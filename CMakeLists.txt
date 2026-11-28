@@ -21,6 +21,7 @@ set(SOURCES
     src/ui_theme.cpp
     src/input_hook.cpp
     src/settings.cpp
+    src/gesture.cpp
     src/toast.cpp
     src/tray.cpp
     src/app.rc
