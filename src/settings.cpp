@@ -43,9 +43,14 @@ const RowDef kRows[] = {
 };
 const int kRowCount = (int)(sizeof(kRows) / sizeof(kRows[0]));
 
+// 「鼠标手势」页的两个录制目标。它们不在 kRows 里（那一页的行号已经排满），
+// 所以用一个不会和 kRows 下标相撞的号段，访问时统一走 RecBinding()。
+const int kRecHover = 100;   // 悬停缩放：只录修饰键
+const int kRecDrag  = 101;   // 任意区域拖动：常规键鼠录制
+
 struct NavDef { const wchar_t* label; };
 const NavDef kNav[] = {
-    { L"快捷键" }, { L"边框外观" }, { L"弹窗提醒" }, { L"行为" }, { L"关于" },
+    { L"快捷键" }, { L"边框外观" }, { L"弹窗提醒" }, { L"行为" }, { L"鼠标手势" }, { L"关于" },
 };
 const int kNavCount = (int)(sizeof(kNav) / sizeof(kNav[0]));
 
@@ -96,6 +101,10 @@ struct St {
     int  hotThick = -1;    // 1..10
     int  hotSwitch = -1;
 
+    int  hotGeSwitch = -1; // 鼠标手势页的开关
+    int  hotGeField  = -1; // 鼠标手势页的绑定框
+    int  hotGeDead   = -1; // 鼠标手势页的死区档位
+
     ui::Button saveBtn, cancelBtn;
 };
 
@@ -140,6 +149,16 @@ RECT BehaveSwitchRect(int i)
     RECT r = { 772, kRowTop + i * 52 + 8, 816, kRowTop + i * 52 + 32 };
     return r;
 }
+
+// ---- 鼠标手势页 ----
+// 三行：悬停缩放 / 任意区域拖动 / 贴边优先。每行 = 开关 + 标签 + 描述 +
+// （前两行）一个绑定框。间距 90 是给绑定框留出的高度，和快捷键页的 36 不同。
+const int kGeTop = 130;
+const int kGeStep = 90;
+
+RECT GeSwitchRect(int i) { RECT r = { 772, kGeTop + i * kGeStep + 8, 816, kGeTop + i * kGeStep + 32 }; return r; }
+RECT GeFieldRect(int i)  { RECT r = { 470, kGeTop + i * kGeStep + 44, 700, kGeTop + i * kGeStep + 74 }; return r; }
+RECT GeDeadRect(int i)   { RECT r = { 470 + i * 44, kGeTop + 3 * kGeStep + 8, 470 + i * 44 + 38, kGeTop + 3 * kGeStep + 36 }; return r; }
 
 COLORREF& ColOf(AppConfig& c, int kind)
 {
@@ -192,6 +211,19 @@ void DrawNavIcon(Gdiplus::Graphics& gfx, int idx, const Gdiplus::RectF& r, COLOR
         gfx.DrawLine(&p, r.X + 6.0f, r.Y + 12.0f, r.X + 12.0f, r.Y + 7.0f);
         break;
     }
+    case 4: {  // 鼠标手势：方框 + 双向箭头
+        ui::StrokeRound(gfx, Gdiplus::RectF(r.X, r.Y + 2, r.Width - 2, r.Height - 4), 3.0f, col, 1.5f);
+        Gdiplus::Pen p(ui::C(col), 1.5f);
+        p.SetStartCap(Gdiplus::LineCapRound);
+        p.SetEndCap(Gdiplus::LineCapRound);
+        const float cy = r.Y + r.Height / 2;
+        gfx.DrawLine(&p, r.X + 5.0f, cy, r.X + r.Width - 5.0f, cy);
+        gfx.DrawLine(&p, r.X + 5.0f, cy, r.X + 8.5f, cy - 3.0f);
+        gfx.DrawLine(&p, r.X + 5.0f, cy, r.X + 8.5f, cy + 3.0f);
+        gfx.DrawLine(&p, r.X + r.Width - 5.0f, cy, r.X + r.Width - 8.5f, cy - 3.0f);
+        gfx.DrawLine(&p, r.X + r.Width - 5.0f, cy, r.X + r.Width - 8.5f, cy + 3.0f);
+        break;
+    }
     default: { // 关于
         Gdiplus::Pen p(ui::C(col), 1.5f);
         gfx.DrawEllipse(&p, r.X, r.Y, r.Width, r.Height);
@@ -201,7 +233,6 @@ void DrawNavIcon(Gdiplus::Graphics& gfx, int idx, const Gdiplus::RectF& r, COLOR
     }
     }
 }
-
 void DrawSwitch(Gdiplus::Graphics& gfx, const RECT& rc, bool on)
 {
     Gdiplus::RectF r((Gdiplus::REAL)rc.left, (Gdiplus::REAL)rc.top,
@@ -272,6 +303,33 @@ int HitBehaveSwitch(POINT p)
 {
     for (int i = 0; i < 2; ++i) { RECT r = BehaveSwitchRect(i); if (InRect(r, p)) return i; }
     return -1;
+}
+
+int HitGeSwitch(POINT p)
+{
+    for (int i = 0; i < 3; ++i) { RECT r = GeSwitchRect(i); if (InRect(r, p)) return i; }
+    return -1;
+}
+int HitGeField(POINT p)
+{
+    for (int i = 0; i < 2; ++i) { RECT r = GeFieldRect(i); if (InRect(r, p)) return i; }
+    return -1;
+}
+int HitGeDead(POINT p)
+{
+    for (int i = 0; i < 4; ++i) { RECT r = GeDeadRect(i); if (InRect(r, p)) return i; }
+    return -1;
+}
+
+// 正在录制的目标 Binding。用指针而不是下标，是因为手势页的两项不在 kRows 里，
+// 它们也走同一套录制状态机（s.recRow）。
+Binding* RecBinding()
+{
+    if (s.recRow < 0) return nullptr;
+    if (s.recRow < kRowCount) return &(s.work.*(kRows[s.recRow].field));
+    if (s.recRow == kRecHover) return &s.work.bindHoverResize;
+    if (s.recRow == kRecDrag)  return &s.work.bindFreeDrag;
+    return nullptr;
 }
 
 // ---------------- 绘制 ----------------
@@ -436,6 +494,102 @@ void PaintPageBehavior(Gdiplus::Graphics& gfx)
              11.0f, ui::kSubText);
 }
 
+void PaintPageGesture(Gdiplus::Graphics& gfx)
+{
+    ui::Text(gfx, L"鼠标手势", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
+    ui::Text(gfx, L"两项都默认关闭。打开后由全局鼠标钩子接管；没按住设定键时，所有操作原样放行。",
+             Gdiplus::RectF((REAL)kCX0, 100.0f, (REAL)(kCX1 - kCX0), 20.0f), 11.5f, ui::kSubText);
+
+    struct Line { const wchar_t* label; const wchar_t* desc; bool on; const Binding* bind; };
+    const Line rows[2] = {
+        { L"悬停缩放窗口",
+          L"按住下面的修饰键，光标停在窗口上，左右移动改宽度、上下移动改高度",
+          s.work.hoverResize, &s.work.bindHoverResize },
+        { L"任意区域拖动窗口",
+          L"按住下面的组合，在窗口任意区域按下拖动即可移动，不需要标题栏",
+          s.work.freeDrag, &s.work.bindFreeDrag },
+    };
+
+    for (int i = 0; i < 2; ++i) {
+        const int y = kGeTop + i * kGeStep;
+        const bool rec = (s.recRow == (i == 0 ? kRecHover : kRecDrag));
+
+        ui::Text(gfx, rows[i].label, Gdiplus::RectF((REAL)kCX0, (REAL)y + 2, 420.0f, 22.0f),
+                 13.0f, rec ? ui::kAccent : ui::kTitle, rec);
+        ui::Text(gfx, rows[i].desc, Gdiplus::RectF((REAL)kCX0, (REAL)y + 23, 500.0f, 20.0f),
+                 11.0f, ui::kSubText);
+
+        RECT fr = GeFieldRect(i);
+        Gdiplus::RectF f((REAL)fr.left, (REAL)fr.top, (REAL)(fr.right - fr.left),
+                         (REAL)(fr.bottom - fr.top));
+        ui::FillRound(gfx, f, 8.0f, rec ? RGB(255, 255, 255) : ui::kField);
+        ui::StrokeRound(gfx, f, 8.0f,
+                        rec ? ui::kAccent : (s.hotGeField == i ? RGB(190, 200, 212) : ui::kFieldLine),
+                        rec ? 1.7f : 1.0f);
+
+        std::wstring txt;
+        COLORREF col = ui::kTitle;
+        if (rec) {
+            txt = (i == 0)
+                ? (s.recMods ? (ModsText(s.recMods) + L"  （回车确认）") : L"请按住修饰键…")
+                : (s.recMods ? (ModsText(s.recMods) + L" + …") : L"请按下组合…");
+            col = ui::kAccent;
+        } else if (rows[i].bind->key) {
+            txt = tmd::DescribeBinding(*rows[i].bind);
+            if (i == 0) txt += L"  + 鼠标移动";
+        } else {
+            txt = L"未设置（功能不会生效）";
+            col = ui::kSubText;
+        }
+        // 只有一个修饰键的绑定最容易撞上系统热键，用橙色提示
+        if (!rec && rows[i].bind->key && i == 0) col = RGB(198, 116, 18);
+
+        ui::Text(gfx, txt, Gdiplus::RectF(f.X, f.Y, f.Width - 16.0f, f.Height), 12.5f, col,
+                 rows[i].bind->key != 0 && !rec, Gdiplus::StringAlignmentCenter);
+
+        DrawSwitch(gfx, GeSwitchRect(i), rows[i].on);
+    }
+
+    {   // 贴边优先
+        const int y = kGeTop + 2 * kGeStep;
+        ui::Text(gfx, L"贴边优先", Gdiplus::RectF((REAL)kCX0, (REAL)y + 2, 420.0f, 22.0f),
+                 13.0f, ui::kTitle);
+        ui::Text(gfx, L"默认关。关着时由移动方向决定改宽还是改高；打开后光标靠近哪条边就锁哪条边",
+                 Gdiplus::RectF((REAL)kCX0, (REAL)y + 23, 520.0f, 20.0f), 11.0f, ui::kSubText);
+        DrawSwitch(gfx, GeSwitchRect(2), s.work.gestureEdgeSnap);
+    }
+
+    {   // 起手死区
+        const int y = kGeTop + 3 * kGeStep;
+        ui::Text(gfx, L"起手死区", Gdiplus::RectF((REAL)kCX0, (REAL)y + 14, 200.0f, 22.0f),
+                 13.0f, ui::kTitle);
+        static const int kDz[4] = { 4, 8, 12, 20 };
+        for (int i = 0; i < 4; ++i) {
+            RECT r = GeDeadRect(i);
+            Gdiplus::RectF rr((REAL)r.left, (REAL)r.top, (REAL)(r.right - r.left),
+                              (REAL)(r.bottom - r.top));
+            const bool cur = (s.work.gestureDeadzone == kDz[i]);
+            ui::FillRound(gfx, rr, 7.0f,
+                          cur ? ui::kAccent : (s.hotGeDead == i ? ui::kBtnGhost : ui::kField));
+            if (!cur) ui::StrokeRound(gfx, rr, 7.0f, ui::kFieldLine, 1.0f);
+            ui::Text(gfx, tmd::Format(L"%d", kDz[i]), rr, 12.5f,
+                     cur ? RGB(255, 255, 255) : ui::kTitle, cur, Gdiplus::StringAlignmentCenter);
+        }
+        ui::Text(gfx, L"像素（超过这个距离才开始改尺寸，防手抖）",
+                 Gdiplus::RectF((REAL)GeDeadRect(3).right + 10, (REAL)y + 14, 300.0f, 22.0f),
+                 11.5f, ui::kSubText);
+    }
+
+    // 副作用必须写在明面上，否则用户只会觉得"菜单怎么闪了一下"
+    const int ny = kGeTop + 3 * kGeStep + 62;
+    ui::Text(gfx, L"· 悬停缩放若用 Alt：松开 Alt 时目标窗口的菜单栏会获得一次焦点（浏览器会亮访问键）。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)ny, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+    ui::Text(gfx, L"· 想彻底干净就改成「单独按住 Ctrl」——Ctrl 按下松开没有任何系统级副作用。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)ny + 20, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+    ui::Text(gfx, L"· 拖动一旦开始就跑完整个按住过程，中途松开修饰键不中断；松手即停。",
+             Gdiplus::RectF((REAL)kCX0, (REAL)ny + 40, (REAL)(kCX1 - kCX0), 20.0f), 10.5f, ui::kSubText);
+}
+
 void PaintPageAbout(Gdiplus::Graphics& gfx)
 {
     ui::Text(gfx, L"关于", Gdiplus::RectF((REAL)kCX0, 70.0f, 300.0f, 28.0f), 17.0f, ui::kTitle, true);
@@ -515,6 +669,7 @@ void Paint(HWND hwnd)
         case 1: PaintPageLook(gfx);    break;
         case 2: PaintPageNotify(gfx);  break;
         case 3: PaintPageBehavior(gfx); break;
+        case 4: PaintPageGesture(gfx);  break;
         default: PaintPageAbout(gfx);  break;
         }
 
@@ -541,6 +696,10 @@ void Paint(HWND hwnd)
             hint = L"分类开关独立保存，随时可改。";
         } else if (s.page == 3) {
             hint = L"同步拖动只在「选中 2 个以上窗口」时生效，单选拖动不受影响。";
+        } else if (s.page == 4) {
+            hint = s.recRow == kRecHover
+                 ? L"这一项只录修饰键：按住想用的组合，按回车确认；Backspace 清空。"
+                 : L"两项都要先打开开关才生效；开关关着时鼠标与键盘行为完全不变。";
         } else {
             hint = L"按 Esc 或点右上角关闭窗口。";
         }
@@ -591,6 +750,48 @@ bool TrySave()
             if (a.device == b.device && a.mods == b.mods && a.key == b.key) {
                 s.error = tmd::Format(L"「%s」和「%s」用了同一个组合键，请错开。",
                                       kRows[i].label, kRows[j].label);
+                Repaint(s.hwnd);
+                return false;
+            }
+        }
+    }
+
+    // 手势绑定与普通快捷键的"修饰键包含"冲突。
+    // 上面的循环只查"完全相同"，查不出包含关系——而悬停缩放是**持续状态**：
+    // 只要它要求的修饰键是另一项的子集，两者就会在同一时刻同时成立
+    // （悬停用 Alt、置顶也是 Alt+左键 → 按住 Alt 移动时置顶手势也跟着走）。
+    {
+        const Binding* gb[2] = { &s.work.bindHoverResize, &s.work.bindFreeDrag };
+        const wchar_t* gn[2] = { L"悬停缩放窗口", L"任意区域拖动窗口" };
+        const bool    gOn[2] = { s.work.hoverResize, s.work.freeDrag };
+
+        for (int gi = 0; gi < 2; ++gi) {
+            if (!gOn[gi] || gb[gi]->key == 0 || gb[gi]->mods == 0) continue;
+
+            for (int i = 0; i < kRowCount; ++i) {
+                const Binding& b = s.work.*(kRows[i].field);
+                if (b.key == 0 || b.device != gb[gi]->device) continue;
+                if ((b.mods & gb[gi]->mods) != gb[gi]->mods) continue;
+
+                s.error = tmd::Format(
+                    L"「%s」要求按住 %s，而「%s」也在这个组合下触发，两者会同时生效。"
+                    L"错开一下：例如把悬停缩放改成单独按住 Ctrl。",
+                    gn[gi], ModsText(gb[gi]->mods).c_str(), kRows[i].label);
+                Repaint(s.hwnd);
+                return false;
+            }
+
+            for (int gj = gi + 1; gj < 2; ++gj) {
+                if (!gOn[gj] || gb[gj]->key == 0 || gb[gj]->mods == 0) continue;
+                const bool eitherWay =
+                    ((gb[gj]->mods & gb[gi]->mods) == gb[gi]->mods) ||
+                    ((gb[gi]->mods & gb[gj]->mods) == gb[gj]->mods);
+                if (!eitherWay) continue;
+
+                s.error = tmd::Format(
+                    L"「%s」和「%s」的修饰键互相包含，会同时触发。"
+                    L"把悬停缩放改成单独按住 Ctrl（拖动继续用 Alt）就互不干扰了。",
+                    gn[gi], gn[gj]);
                 Repaint(s.hwnd);
                 return false;
             }
@@ -665,10 +866,38 @@ void OnKeyDown(UINT vk, bool down)
 
     if (!down) return;
 
+    // 悬停缩放绑的是"修饰键 + 鼠标移动"，没有可报的鼠标键，所以只收修饰键：
+    // 按住组合 → 回车确认，Esc 取消，Backspace 清空。其余按键一律拒绝并说明原因。
+    if (s.recRow == kRecHover) {
+        if (vk == VK_ESCAPE) { StopRecord(); s.error.clear(); Repaint(s.hwnd); return; }
+        if (vk == VK_BACK) {
+            s.work.bindHoverResize = Binding{};
+            s.error.clear();
+            StopRecord();
+            Repaint(s.hwnd);
+            return;
+        }
+        if (vk == VK_RETURN) {
+            if (s.recMods == 0) {
+                s.error = L"至少要按住一个修饰键（Ctrl / Alt / Shift / Win）。";
+                Repaint(s.hwnd);
+                return;
+            }
+            s.work.bindHoverResize = Binding{ TMD_DEV_MOUSE, s.recMods, TMD_MOUSE_HOVER };
+            s.error.clear();
+            StopRecord();
+            Repaint(s.hwnd);
+            return;
+        }
+        s.error = L"这一项只录修饰键：按住想用的组合（例如单独 Alt），再按回车确认。";
+        Repaint(s.hwnd);
+        return;
+    }
+
     if (vk == VK_ESCAPE) { StopRecord(); s.error.clear(); Repaint(s.hwnd); return; }
     if (vk == VK_RETURN) { StopRecord(); Repaint(s.hwnd); return; }
     if (vk == VK_BACK) {
-        s.work.*(kRows[s.recRow].field) = Binding{};
+        if (Binding* b = RecBinding()) *b = Binding{};
         s.error.clear();
         Repaint(s.hwnd);
         return;
@@ -684,7 +913,7 @@ void OnKeyDown(UINT vk, bool down)
         return;
     }
 
-    s.work.*(kRows[s.recRow].field) = Binding{ TMD_DEV_KEYBOARD, s.recMods, vk };
+    if (Binding* b = RecBinding()) *b = Binding{ TMD_DEV_KEYBOARD, s.recMods, vk };
     s.error.clear();
     StopRecord();
     Repaint(s.hwnd);
@@ -694,6 +923,12 @@ void OnMouseDown(UINT mouseKey, POINT pt, UINT mods)
 {
     if (s.recRow < 0) return;
 
+    if (s.recRow == kRecHover) {
+        s.error = L"悬停缩放只录修饰键，不录鼠标键：按住组合后按回车确认。";
+        Repaint(s.hwnd);
+        return;
+    }
+
     // 鼠标键可以不带修饰键（右键 / 中键 / 侧键 / 滚轮），但“裸左键”会抢掉全系统的点击，拒绝
     if (mods == 0 && mouseKey == TMD_MOUSE_LEFT) {
         s.error = L"左键必须搭配修饰键（例如 Ctrl + 鼠标左键），否则会抢掉全系统的左键点击。";
@@ -701,7 +936,7 @@ void OnMouseDown(UINT mouseKey, POINT pt, UINT mods)
         return;
     }
 
-    s.work.*(kRows[s.recRow].field) = Binding{ TMD_DEV_MOUSE, mods, mouseKey };
+    if (Binding* b = RecBinding()) *b = Binding{ TMD_DEV_MOUSE, mods, mouseKey };
     s.error.clear();
     StopRecord();
     Repaint(s.hwnd);
@@ -782,6 +1017,9 @@ void UpdateHover(POINT p)
     upd(s.hotThick, s.page == 1 ? HitThick(p) : -1);
     upd(s.hotSwitch, s.page == 2 ? HitSwitch(p)
                     : (s.page == 3 ? HitBehaveSwitch(p) : -1));
+    upd(s.hotGeSwitch, s.page == 4 ? HitGeSwitch(p) : -1);
+    upd(s.hotGeField,  s.page == 4 ? HitGeField(p)  : -1);
+    upd(s.hotGeDead,   s.page == 4 ? HitGeDead(p)   : -1);
 
     if (s.saveBtn.Hit(p) != s.saveBtn.hover)   { s.saveBtn.hover = !s.saveBtn.hover; dirty = true; }
     if (s.cancelBtn.Hit(p) != s.cancelBtn.hover) { s.cancelBtn.hover = !s.cancelBtn.hover; dirty = true; }
@@ -896,6 +1134,28 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
             const int sw = HitBehaveSwitch(p);
             if (sw == 0) { s.work.syncDrag = !s.work.syncDrag; Repaint(hwnd); return 0; }
             if (sw == 1) { s.work.showMarker = !s.work.showMarker; Repaint(hwnd); return 0; }
+        } else if (s.page == 4) {
+            const int sw = HitGeSwitch(p);
+            if (sw == 0) { s.work.hoverResize = !s.work.hoverResize; Repaint(hwnd); return 0; }
+            if (sw == 1) { s.work.freeDrag = !s.work.freeDrag; Repaint(hwnd); return 0; }
+            if (sw == 2) { s.work.gestureEdgeSnap = !s.work.gestureEdgeSnap; Repaint(hwnd); return 0; }
+
+            const int fld = HitGeField(p);
+            if (fld >= 0) {
+                s.recRow  = (fld == 0) ? kRecHover : kRecDrag;
+                s.recMods = LiveMods();
+                s.error.clear();
+                Repaint(hwnd);
+                return 0;
+            }
+
+            const int dz = HitGeDead(p);
+            if (dz >= 0) {
+                static const int kDz[4] = { 4, 8, 12, 20 };
+                s.work.gestureDeadzone = kDz[dz];
+                Repaint(hwnd);
+                return 0;
+            }
         }
 
         if (p.y < kTitleH) {
