@@ -218,6 +218,7 @@ LRESULT App::Handle(HWND hwnd, UINT msg, WPARAM w, LPARAM l)
             RefreshOverlayNow();
         }
         else if (w == IDT_PURGE) m_wm.Purge();
+        else if (w == TMD_IDT_DRAG) m_gesture.OnDragTick();   // 拖动期间的位置驱动
         return 0;
 
     case WM_TMD_FOREGROUND:

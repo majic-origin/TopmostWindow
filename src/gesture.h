@@ -8,6 +8,9 @@
 // 这条是"坐标变了，来算一次"。
 #define WM_TMD_GESTURE (WM_APP + 61)
 
+// 拖动期间的兜底定时器（主窗口 IDT_* 号段，1/2 已被标记与清理占用）
+#define TMD_IDT_DRAG   3
+
 // 鼠标手势引擎。两个功能都默认关闭，开关打开才接管：
 //
 //  1. 悬停缩放——按住 bindHoverResize 的修饰键，光标停在目标窗口上，
@@ -50,6 +53,8 @@ public:
     void OnFrame();
     // 主线程调用：200ms 兜底节拍（修饰键松开、目标窗口没了）
     void OnIdleTick();
+    // 主线程调用：拖动期间的位置驱动（定时器，8ms 一次）
+    void OnDragTick();
 
     bool Dragging() const { return m_dragActive; }
     bool Resizing() const { return m_rsPhase != Phase::Idle; }
@@ -65,7 +70,7 @@ private:
     void ApplyResize(POINT pt);
 
     void BeginDrag(HWND h, POINT pt);
-    void EndDrag();
+    void EndDrag(const wchar_t* why = L"-");
     void ApplyDrag(POINT pt);
 
     HWND   m_notify = nullptr;
@@ -80,6 +85,8 @@ private:
     std::atomic<bool> m_evtDown { false };  // 不可丢
     std::atomic<bool> m_evtUp   { false };  // 不可丢
     std::atomic<bool> m_posted  { false };  // 已有一条待处理信号，合并重复投递
+    std::atomic<int>  m_diagDown { 0 };     // 0 无 / 1 钩子已接管按下 / 2 钩子跳过了（无合法目标）
+    std::atomic<UINT> m_diagLastMsg { 0 };  // 钩子最后一次收到的消息号（诊断用）
     bool              m_hookDrag = false;   // 钩子侧独占：这次按下已被接管，抬起必须成对吞掉
 
     // ---- 主线程独占状态：悬停缩放 ----
@@ -97,9 +104,16 @@ private:
     HWND  m_dragTarget = nullptr;
     RECT  m_dragOrig   = {};
     POINT m_dragAnchor = { 0, 0 };
+    // 起手时探测"这个鼠标键的 VK 在异步键状态里是否可信"。
+    // 中键被驱动重映射时，钩子能收到 WM_MBUTTONDOWN，但 GetAsyncKeyState(VK_MBUTTON)
+    // 一直是 0——拿它当"松手"判据会在拖第一帧就自杀。
+    bool  m_btnPollable = true;
+    UINT  m_dragVk      = 0;
+    DWORD m_dragStartTick = 0;
 
     // 上一帧真正提交过的位置：完全相同就跳过 SetWindowPos
     int m_lastX = INT_MIN, m_lastY = INT_MIN;
     int m_lastW = INT_MIN, m_lastH = INT_MIN;
     int m_minW  = 160, m_minH = 100;
+    int m_logLeft = 8;   // 本次拖动还剩几条 MOVE 诊断日志要写（避免刷屏）
 };
